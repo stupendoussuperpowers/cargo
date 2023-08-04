@@ -430,7 +430,6 @@ fn report_test_error(
 
     crate::display_error(&err, &mut ws.config().shell());
     drop(ws.config().shell().note(
-        "test was terminated by the signal, stderr might be truncated, \
-            pass `--nocapture` disable output buffering.",
+        "test was terminated by the signal, stderr might be truncated, pass `--nocapture` disable output buffering.",
     ));
 }
