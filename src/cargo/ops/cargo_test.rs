@@ -432,4 +432,16 @@ fn report_test_error(
     drop(ws.config().shell().note(
         "test was terminated by the signal, stderr might be truncated, pass `--nocapture` disable output buffering.",
     ));
+
+    /*
+        ProcessError {
+        desc: "process didn't exit successfully: `C:\\....17cfa5d883a95137.exe --nocapture` (exit code: 101)",                                                                                                  e --nocapture` (exit code: 101)",
+        code: Some(
+            101,
+        ),
+        stdout: None,
+        stderr: None,
+    }
+    is_simple => true
+         */
 }
