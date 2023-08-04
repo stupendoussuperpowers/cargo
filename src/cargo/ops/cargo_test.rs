@@ -436,34 +436,4 @@ fn report_test_error(
         "test was terminated by the signal, stderr might be truncated, pass `--nocapture` disable output buffering.",
         ));
     }
-
-    /*
-    regular failing test:
-
-
-    test tests::non_breaking ... FAILED
-
-    failures:
-
-    failures:
-        tests::non_breaking
-
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-    error: test failed, to rerun pass `--lib`
-
-     */
-
-    /*
-    test aborted by a signal -
-
-
-    running 1 test
-    error: test failed, to rerun pass `--lib`
-
-    Caused by:
-    process didn't exit successfully: `/home/sanchit/Code/rustpress/target/debug/deps/rustpress-1838d8567bb57635 --nocapture` (signal: 6, SIGABRT: process abort signal)
-    note: test was terminated by the signal, stderr might be truncated, pass `--nocapture` disable output buffering.
-
-     */
 }
