@@ -424,24 +424,46 @@ fn report_test_error(
         .downcast_ref::<ProcessError>()
         .and_then(|proc_err| proc_err.code)
         .map_or(false, |code| code == 101);
+
     if !is_simple {
         err = test_error.context(err);
     }
 
     crate::display_error(&err, &mut ws.config().shell());
-    drop(ws.config().shell().note(
+
+    if !is_simple {
+        drop(ws.config().shell().note(
         "test was terminated by the signal, stderr might be truncated, pass `--nocapture` disable output buffering.",
-    ));
+        ));
+    }
 
     /*
-        ProcessError {
-        desc: "process didn't exit successfully: `C:\\....17cfa5d883a95137.exe --nocapture` (exit code: 101)",                                                                                                  e --nocapture` (exit code: 101)",
-        code: Some(
-            101,
-        ),
-        stdout: None,
-        stderr: None,
-    }
-    is_simple => true
-         */
+    regular failing test:
+
+
+    test tests::non_breaking ... FAILED
+
+    failures:
+
+    failures:
+        tests::non_breaking
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    error: test failed, to rerun pass `--lib`
+
+     */
+
+    /*
+    test aborted by a signal -
+
+
+    running 1 test
+    error: test failed, to rerun pass `--lib`
+
+    Caused by:
+    process didn't exit successfully: `/home/sanchit/Code/rustpress/target/debug/deps/rustpress-1838d8567bb57635 --nocapture` (signal: 6, SIGABRT: process abort signal)
+    note: test was terminated by the signal, stderr might be truncated, pass `--nocapture` disable output buffering.
+
+     */
 }
