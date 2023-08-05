@@ -136,6 +136,7 @@ fn run_unit_tests(
             compilation,
             "unittests",
         )?;
+
         config
             .shell()
             .concise(|shell| shell.status("Running", &exe_display))?;
@@ -431,7 +432,11 @@ fn report_test_error(
 
     crate::display_error(&err, &mut ws.config().shell());
 
-    if !is_simple {
+    // Suggest the use of --nocapture flag in case the test was terminated via a signal.
+    // Only suggest this if the standard test harness is used.
+    let harness_flag: bool = unit_err.unit.target.harness();
+
+    if !is_simple && harness_flag {
         drop(ws.config().shell().note(
         "test was terminated by the signal, stderr might be truncated, pass `--nocapture` disable output buffering.",
         ));
