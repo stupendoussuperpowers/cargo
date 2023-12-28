@@ -1,18 +1,25 @@
 //! See [GitSource].
 
-use crate::core::source::{MaybePackage, QueryKind, Source, SourceId};
+use crate::core::global_cache_tracker;
 use crate::core::GitReference;
-use crate::core::{Dependency, Package, PackageId, Summary};
+use crate::core::SourceId;
+use crate::core::{Dependency, Package, PackageId};
 use crate::sources::git::utils::GitRemote;
+use crate::sources::source::MaybePackage;
+use crate::sources::source::QueryKind;
+use crate::sources::source::Source;
+use crate::sources::IndexSummary;
 use crate::sources::PathSource;
+use crate::util::cache_lock::CacheLockMode;
 use crate::util::errors::CargoResult;
 use crate::util::hex::short_hash;
+use crate::util::interning::InternedString;
 use crate::util::Config;
 use anyhow::Context;
 use cargo_util::paths::exclude_from_backups_and_indexing;
-use log::trace;
 use std::fmt::{self, Debug, Formatter};
 use std::task::Poll;
+use tracing::trace;
 use url::Url;
 
 /// `GitSource` contains one or more packages gathering from a Git repository.
@@ -69,10 +76,21 @@ pub struct GitSource<'cfg> {
     /// The unique identifier of this source.
     source_id: SourceId,
     /// The underlying path source to discover packages inside the Git repository.
+    ///
+    /// This gets set to `Some` after the git repo has been checked out
+    /// (automatically handled via [`GitSource::block_until_ready`]).
     path_source: Option<PathSource<'cfg>>,
-    /// The identifer of this source for Cargo's Git cache directory.
+    /// A short string that uniquely identifies the version of the checkout.
+    ///
+    /// This is typically a 7-character string of the OID hash, automatically
+    /// increasing in size if it is ambiguous.
+    ///
+    /// This is set to `Some` after the git repo has been checked out
+    /// (automatically handled via [`GitSource::block_until_ready`]).
+    short_id: Option<InternedString>,
+    /// The identifier of this source for Cargo's Git cache directory.
     /// See [`ident`] for more.
-    ident: String,
+    ident: InternedString,
     config: &'cfg Config,
     /// Disables status messages.
     quiet: bool,
@@ -85,13 +103,7 @@ impl<'cfg> GitSource<'cfg> {
 
         let remote = GitRemote::new(source_id.url());
         let manifest_reference = source_id.git_reference().unwrap().clone();
-        let locked_rev =
-            match source_id.precise() {
-                Some(s) => Some(git2::Oid::from_str(s).with_context(|| {
-                    format!("precise value for git is not a git revision: {}", s)
-                })?),
-                None => None,
-            };
+        let locked_rev = source_id.precise_git_oid()?;
         let ident = ident_shallow(
             &source_id,
             config
@@ -106,7 +118,8 @@ impl<'cfg> GitSource<'cfg> {
             locked_rev,
             source_id,
             path_source: None,
-            ident,
+            short_id: None,
+            ident: ident.into(),
             config,
             quiet: false,
         };
@@ -120,7 +133,7 @@ impl<'cfg> GitSource<'cfg> {
     }
 
     /// Returns the packages discovered by this source. It may fetch the Git
-    /// repository as well as walk the filesystem if package informations
+    /// repository as well as walk the filesystem if package information
     /// haven't yet updated.
     pub fn read_packages(&mut self) -> CargoResult<Vec<Package>> {
         if self.path_source.is_none() {
@@ -128,6 +141,17 @@ impl<'cfg> GitSource<'cfg> {
             self.block_until_ready()?;
         }
         self.path_source.as_mut().unwrap().read_packages()
+    }
+
+    fn mark_used(&self, size: Option<u64>) -> CargoResult<()> {
+        self.config
+            .deferred_global_last_use()?
+            .mark_git_checkout_used(global_cache_tracker::GitCheckout {
+                encoded_git_name: self.ident,
+                short_name: self.short_id.expect("update before download"),
+                size,
+            });
+        Ok(())
     }
 }
 
@@ -179,7 +203,7 @@ impl<'cfg> Source for GitSource<'cfg> {
         &mut self,
         dep: &Dependency,
         kind: QueryKind,
-        f: &mut dyn FnMut(Summary),
+        f: &mut dyn FnMut(IndexSummary),
     ) -> Poll<CargoResult<()>> {
         if let Some(src) = self.path_source.as_mut() {
             src.query(dep, kind, f)
@@ -202,6 +226,7 @@ impl<'cfg> Source for GitSource<'cfg> {
 
     fn block_until_ready(&mut self) -> CargoResult<()> {
         if self.path_source.is_some() {
+            self.mark_used(None)?;
             return Ok(());
         }
 
@@ -209,7 +234,9 @@ impl<'cfg> Source for GitSource<'cfg> {
         // Ignore errors creating it, in case this is a read-only filesystem:
         // perhaps the later operations can succeed anyhow.
         let _ = git_fs.create_dir();
-        let git_path = self.config.assert_package_cache_locked(&git_fs);
+        let git_path = self
+            .config
+            .assert_package_cache_locked(CacheLockMode::DownloadExclusive, &git_fs);
 
         // Before getting a checkout, make sure that `<cargo_home>/git` is
         // marked as excluded from indexing and backups. Older versions of Cargo
@@ -221,7 +248,8 @@ impl<'cfg> Source for GitSource<'cfg> {
         // exists.
         exclude_from_backups_and_indexing(&git_path);
 
-        let db_path = git_path.join("db").join(&self.ident);
+        let db_path = self.config.git_db_path().join(&self.ident);
+        let db_path = db_path.into_path_unlocked();
 
         let db = self.remote.db_at(&db_path).ok();
         let (db, actual_rev) = match (self.locked_rev, db) {
@@ -278,18 +306,30 @@ impl<'cfg> Source for GitSource<'cfg> {
         // Check out `actual_rev` from the database to a scoped location on the
         // filesystem. This will use hard links and such to ideally make the
         // checkout operation here pretty fast.
-        let checkout_path = git_path
-            .join("checkouts")
+        let checkout_path = self
+            .config
+            .git_checkouts_path()
             .join(&self.ident)
             .join(short_id.as_str());
+        let checkout_path = checkout_path.into_path_unlocked();
         db.copy_to(actual_rev, &checkout_path, self.config)?;
 
-        let source_id = self.source_id.with_precise(Some(actual_rev.to_string()));
+        let source_id = self
+            .source_id
+            .with_git_precise(Some(actual_rev.to_string()));
         let path_source = PathSource::new_recursive(&checkout_path, source_id, self.config);
 
         self.path_source = Some(path_source);
+        self.short_id = Some(short_id.as_str().into());
         self.locked_rev = Some(actual_rev);
-        self.path_source.as_mut().unwrap().update()
+        self.path_source.as_mut().unwrap().update()?;
+
+        // Hopefully this shouldn't incur too much of a performance hit since
+        // most of this should already be in cache since it was just
+        // extracted.
+        let size = global_cache_tracker::du_git_checkout(&checkout_path)?;
+        self.mark_used(Some(size))?;
+        Ok(())
     }
 
     fn download(&mut self, id: PackageId) -> CargoResult<MaybePackage> {
@@ -298,6 +338,7 @@ impl<'cfg> Source for GitSource<'cfg> {
             id,
             self.remote
         );
+        self.mark_used(None)?;
         self.path_source
             .as_mut()
             .expect("BUG: `update()` must be called before `get()`")

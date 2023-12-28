@@ -11,7 +11,7 @@
 //! like what rustc has done[^1]. Also, no one knows if Cargo really needs that.
 //! To be pragmatic, here we list a handful of items you may want to learn:
 //!
-//! * [`BuildContext`] is a static context containg all information you need
+//! * [`BuildContext`] is a static context containing all information you need
 //!   before a build gets started.
 //! * [`Context`] is the center of the world, coordinating a running build and
 //!   collecting information from it.
@@ -19,7 +19,7 @@
 //! * [`fingerprint`] not only defines but also executes a set of rules to
 //!   determine if a re-compile is needed.
 //! * [`job_queue`] is where the parallelism, job scheduling, and communication
-//!   machinary happen between Cargo and the compiler.
+//!   machinery happen between Cargo and the compiler.
 //! * [`layout`] defines and manages output artifacts of a build in the filesystem.
 //! * [`unit_dependencies`] is for building a dependency graph for compilation
 //!   from a result of dependency resolution.
@@ -65,7 +65,7 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Error};
 use lazycell::LazyCell;
-use log::{debug, trace};
+use tracing::{debug, trace};
 
 pub use self::build_config::{BuildConfig, CompileMode, MessageFormat, TimingOutput};
 pub use self::build_context::{
@@ -93,9 +93,10 @@ use crate::core::{Feature, PackageId, Target, Verbosity};
 use crate::util::errors::{CargoResult, VerboseError};
 use crate::util::interning::InternedString;
 use crate::util::machine_message::{self, Message};
-use crate::util::toml::TomlDebugInfo;
 use crate::util::{add_path_args, internal, iter_join_onto, profile};
 use cargo_util::{paths, ProcessBuilder, ProcessError};
+use cargo_util_schemas::manifest::TomlDebugInfo;
+use cargo_util_schemas::manifest::TomlTrimPaths;
 use rustfix::diagnostics::Applicability;
 
 const RUSTDOC_CRATE_VERSION_FLAG: &str = "--crate-version";
@@ -202,7 +203,6 @@ fn compile<'cfg>(
                 &unit.target,
                 cx.files().message_cache_path(unit),
                 cx.bcx.build_config.message_format,
-                cx.bcx.config.shell().err_supports_color(),
                 unit.show_warnings(bcx.config),
             );
             // Need to link targets on both the dirty and fresh.
@@ -252,7 +252,7 @@ fn rustc(cx: &mut Context<'_, '_>, unit: &Unit, exec: &Arc<dyn Executor>) -> Car
     let mut rustc = prepare_rustc(cx, unit)?;
     let build_plan = cx.bcx.build_config.build_plan;
 
-    let name = unit.pkg.name().to_string();
+    let name = unit.pkg.name();
     let buildkey = unit.buildkey();
 
     let outputs = cx.outputs(unit)?;
@@ -368,7 +368,7 @@ fn rustc(cx: &mut Context<'_, '_>, unit: &Unit, exec: &Arc<dyn Executor>) -> Car
             // See rust-lang/cargo#8348.
             if output.hardlink.is_some() && output.path.exists() {
                 _ = paths::remove_file(&output.path).map_err(|e| {
-                    log::debug!(
+                    tracing::debug!(
                         "failed to delete previous output file `{:?}`: {e:?}",
                         output.path
                     );
@@ -422,7 +422,7 @@ fn rustc(cx: &mut Context<'_, '_>, unit: &Unit, exec: &Arc<dyn Executor>) -> Car
                     };
                     let errors = match output_options.errors_seen {
                         0 => String::new(),
-                        1 => " due to previous error".to_string(),
+                        1 => " due to 1 previous error".to_string(),
                         count => format!(" due to {} previous errors", count),
                     };
                     let name = descriptive_pkg_name(&name, &target, &mode);
@@ -543,12 +543,9 @@ fn link_targets(cx: &mut Context<'_, '_>, unit: &Unit, fresh: bool) -> CargoResu
             if !src.exists() {
                 continue;
             }
-            let dst = match output.hardlink.as_ref() {
-                Some(dst) => dst,
-                None => {
-                    destinations.push(src.clone());
-                    continue;
-                }
+            let Some(dst) = output.hardlink.as_ref() else {
+                destinations.push(src.clone());
+                continue;
             };
             destinations.push(dst.clone());
             paths::link_or_copy(src, dst)?;
@@ -634,19 +631,9 @@ where
 {
     let mut search_path = vec![];
     for dir in paths {
-        let dir = match dir.to_str() {
-            Some(s) => {
-                let mut parts = s.splitn(2, '=');
-                match (parts.next(), parts.next()) {
-                    (Some("native"), Some(path))
-                    | (Some("crate"), Some(path))
-                    | (Some("dependency"), Some(path))
-                    | (Some("framework"), Some(path))
-                    | (Some("all"), Some(path)) => path.into(),
-                    _ => dir.clone(),
-                }
-            }
-            None => dir.clone(),
+        let dir = match dir.to_str().and_then(|s| s.split_once("=")) {
+            Some(("native" | "crate" | "dependency" | "framework" | "all", path)) => path.into(),
+            _ => dir.clone(),
         };
         if dir.starts_with(&root_output) {
             search_path.push(dir);
@@ -675,6 +662,15 @@ fn prepare_rustc(cx: &Context<'_, '_>, unit: &Unit) -> CargoResult<ProcessBuilde
     let mut base = cx
         .compilation
         .rustc_process(unit, is_primary, is_workspace)?;
+    build_base_args(cx, &mut base, unit)?;
+
+    base.inherit_jobserver(&cx.jobserver);
+    build_deps_args(&mut base, cx, unit)?;
+    add_cap_lints(cx.bcx, unit, &mut base);
+    base.args(cx.bcx.rustflags_args(unit));
+    if cx.bcx.config.cli_unstable().binary_dep_depinfo {
+        base.arg("-Z").arg("binary-dep-depinfo");
+    }
 
     if is_primary {
         base.env("CARGO_PRIMARY_PACKAGE", "1");
@@ -684,15 +680,17 @@ fn prepare_rustc(cx: &Context<'_, '_>, unit: &Unit) -> CargoResult<ProcessBuilde
         let tmp = cx.files().layout(unit.kind).prepare_tmp()?;
         base.env("CARGO_TARGET_TMPDIR", tmp.display().to_string());
     }
-
-    base.inherit_jobserver(&cx.jobserver);
-    build_base_args(cx, &mut base, unit)?;
-    build_deps_args(&mut base, cx, unit)?;
-    add_cap_lints(cx.bcx, unit, &mut base);
-    base.args(cx.bcx.rustflags_args(unit));
-    if cx.bcx.config.cli_unstable().binary_dep_depinfo {
-        base.arg("-Z").arg("binary-dep-depinfo");
+    if cx.bcx.config.nightly_features_allowed {
+        // This must come after `build_base_args` (which calls `add_path_args`) so that the `cwd`
+        // is set correctly.
+        base.env(
+            "CARGO_RUSTC_CURRENT_DIR",
+            base.get_cwd()
+                .map(|c| c.display().to_string())
+                .unwrap_or(String::new()),
+        );
     }
+
     Ok(base)
 }
 
@@ -745,7 +743,7 @@ fn prepare_rustdoc(cx: &Context<'_, '_>, unit: &Unit) -> CargoResult<ProcessBuil
             .arg(scrape_output_path(cx, unit)?);
 
         // Only scrape example for items from crates in the workspace, to reduce generated file size
-        for pkg in cx.bcx.ws.members() {
+        for pkg in cx.bcx.packages.packages() {
             let names = pkg
                 .targets()
                 .iter()
@@ -785,7 +783,7 @@ fn rustdoc(cx: &mut Context<'_, '_>, unit: &Unit) -> CargoResult<Work> {
     paths::create_dir_all(&doc_dir)?;
 
     let target_desc = unit.target.description_named();
-    let name = unit.pkg.name().to_string();
+    let name = unit.pkg.name();
     let build_script_outputs = Arc::clone(&cx.build_script_outputs);
     let package_id = unit.pkg.package_id();
     let manifest_path = PathBuf::from(unit.pkg.manifest_path());
@@ -964,6 +962,7 @@ fn build_base_args(cx: &Context<'_, '_>, cmd: &mut ProcessBuilder, unit: &Unit) 
         incremental,
         strip,
         rustflags: profile_rustflags,
+        trim_paths,
         ..
     } = unit.profile.clone();
     let test = unit.mode.is_any_test();
@@ -1042,6 +1041,10 @@ fn build_base_args(cx: &Context<'_, '_>, cmd: &mut ProcessBuilder, unit: &Unit) 
         }
     }
 
+    if let Some(trim_paths) = trim_paths {
+        trim_paths_args(cmd, cx, unit, &trim_paths)?;
+    }
+
     cmd.args(unit.pkg.manifest().lint_rustflags());
     cmd.args(&profile_rustflags);
     if let Some(args) = cx.bcx.extra_args_for(unit) {
@@ -1117,7 +1120,10 @@ fn build_base_args(cx: &Context<'_, '_>, cmd: &mut ProcessBuilder, unit: &Unit) 
         cmd,
         "-C",
         "linker=",
-        bcx.linker(unit.kind).as_ref().map(|s| s.as_ref()),
+        cx.compilation
+            .target_linker(unit.kind)
+            .as_ref()
+            .map(|s| s.as_ref()),
     );
     if incremental {
         let dir = cx.files().layout(unit.kind).incremental().as_os_str();
@@ -1173,44 +1179,125 @@ fn features_args(unit: &Unit) -> Vec<OsString> {
     args
 }
 
+/// Generates the `--remap-path-scope` and `--remap-path-prefix` for [RFC 3127].
+/// See also unstable feature [`-Ztrim-paths`].
+///
+/// [RFC 3127]: https://rust-lang.github.io/rfcs/3127-trim-paths.html
+/// [`-Ztrim-paths`]: https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#profile-trim-paths-option
+fn trim_paths_args(
+    cmd: &mut ProcessBuilder,
+    cx: &Context<'_, '_>,
+    unit: &Unit,
+    trim_paths: &TomlTrimPaths,
+) -> CargoResult<()> {
+    if trim_paths.is_none() {
+        return Ok(());
+    }
+
+    // feature gate was checked during mainfest/config parsing.
+    cmd.arg("-Zunstable-options");
+    cmd.arg(format!("-Zremap-path-scope={trim_paths}"));
+
+    let sysroot_remap = {
+        let sysroot = &cx.bcx.target_data.info(unit.kind).sysroot;
+        let mut remap = OsString::from("--remap-path-prefix=");
+        remap.push(sysroot);
+        remap.push("/lib/rustlib/src/rust"); // See also `detect_sysroot_src_path()`.
+        remap.push("=");
+        remap.push("/rustc/");
+        // This remap logic aligns with rustc:
+        // <https://github.com/rust-lang/rust/blob/c2ef3516/src/bootstrap/src/lib.rs#L1113-L1116>
+        if let Some(commit_hash) = cx.bcx.rustc().commit_hash.as_ref() {
+            remap.push(commit_hash);
+        } else {
+            remap.push(cx.bcx.rustc().version.to_string());
+        }
+        remap
+    };
+    let package_remap = {
+        let pkg_root = unit.pkg.root();
+        let ws_root = cx.bcx.ws.root();
+        let is_local = unit.pkg.package_id().source_id().is_path();
+        let mut remap = OsString::from("--remap-path-prefix=");
+        // Remapped to path relative to workspace root:
+        //
+        // * path dependencies under workspace root directory
+        //
+        // Remapped to `<pkg>-<version>`
+        //
+        // * registry dependencies
+        // * git dependencies
+        // * path dependencies outside workspace root directory
+        if is_local && pkg_root.strip_prefix(ws_root).is_ok() {
+            remap.push(ws_root);
+            remap.push("=."); // remap to relative rustc work dir explicitly
+        } else {
+            remap.push(pkg_root);
+            remap.push("=");
+            remap.push(unit.pkg.name());
+            remap.push("-");
+            remap.push(unit.pkg.version().to_string());
+        }
+        remap
+    };
+
+    // Order of `--remap-path-prefix` flags is important for `-Zbuild-std`.
+    // We want to show `/rustc/<hash>/library/std` instead of `std-0.0.0`.
+    cmd.arg(package_remap);
+    cmd.arg(sysroot_remap);
+
+    Ok(())
+}
+
 /// Generates the `--check-cfg` arguments for the `unit`.
 /// See unstable feature [`check-cfg`].
 ///
 /// [`check-cfg`]: https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#check-cfg
 fn check_cfg_args(cx: &Context<'_, '_>, unit: &Unit) -> Vec<OsString> {
-    if let Some((features, well_known_names, well_known_values, _output)) =
-        cx.bcx.config.cli_unstable().check_cfg
-    {
-        let mut args = Vec::with_capacity(unit.pkg.summary().features().len() * 2 + 4);
-        args.push(OsString::from("-Zunstable-options"));
+    if cx.bcx.config.cli_unstable().check_cfg {
+        // The routine below generates the --check-cfg arguments. Our goals here are to
+        // enable the checking of conditionals and pass the list of declared features.
+        //
+        // In the simplified case, it would resemble something like this:
+        //
+        //   --check-cfg=cfg() --check-cfg=cfg(feature, values(...))
+        //
+        // but having `cfg()` is redundant with the second argument (as well-known names
+        // and values are implicitly enabled when one or more `--check-cfg` argument is
+        // passed) so we don't emit it:
+        //
+        //   --check-cfg=cfg(feature, values(...))
+        //
+        // expect when there are no features declared, where we can't generate the
+        // `cfg(feature, values())` argument since it would mean that it is somehow
+        // possible to have a `#[cfg(feature)]` without a feature name, which is
+        // impossible and not what we want, so we just generate:
+        //
+        //   --check-cfg=cfg()
 
-        if features {
-            // This generate something like this:
-            //  - values(feature)
-            //  - values(feature, "foo", "bar")
-            let mut arg = OsString::from("values(feature");
-            for (&feat, _) in unit.pkg.summary().features() {
-                arg.push(", \"");
-                arg.push(&feat);
-                arg.push("\"");
+        let gross_cap_estimation = unit.pkg.summary().features().len() * 7 + 25;
+        let mut arg_feature = OsString::with_capacity(gross_cap_estimation);
+
+        arg_feature.push("cfg(");
+        if !unit.pkg.summary().features().is_empty() {
+            arg_feature.push("feature, values(");
+            for (i, feature) in unit.pkg.summary().features().keys().enumerate() {
+                if i != 0 {
+                    arg_feature.push(", ");
+                }
+                arg_feature.push("\"");
+                arg_feature.push(feature);
+                arg_feature.push("\"");
             }
-            arg.push(")");
-
-            args.push(OsString::from("--check-cfg"));
-            args.push(arg);
+            arg_feature.push(")");
         }
+        arg_feature.push(")");
 
-        if well_known_names {
-            args.push(OsString::from("--check-cfg"));
-            args.push(OsString::from("names()"));
-        }
-
-        if well_known_values {
-            args.push(OsString::from("--check-cfg"));
-            args.push(OsString::from("values()"));
-        }
-
-        args
+        vec![
+            OsString::from("-Zunstable-options"),
+            OsString::from("--check-cfg"),
+            arg_feature,
+        ]
     } else {
         Vec::new()
     }
@@ -1328,7 +1415,7 @@ fn add_custom_flags(
                     cmd.arg("--check-cfg").arg(check_cfg);
                 }
             }
-            for &(ref name, ref value) in output.env.iter() {
+            for (name, value) in output.env.iter() {
                 cmd.env(name, value);
             }
         }
@@ -1358,6 +1445,7 @@ pub fn extern_args(
                 .require(Feature::public_dependency())
                 .is_ok()
                 && !dep.public
+                && unit.target.is_lib()
             {
                 opts.push("priv");
                 *unstable_opts = true;
@@ -1426,8 +1514,6 @@ fn envify(s: &str) -> String {
 struct OutputOptions {
     /// What format we're emitting from Cargo itself.
     format: MessageFormat,
-    /// Whether or not to display messages in color.
-    color: bool,
     /// Where to write the JSON messages to support playback later if the unit
     /// is fresh. The file is created lazily so that in the normal case, lots
     /// of empty files are not created. If this is None, the output will not
@@ -1449,14 +1535,12 @@ struct OutputOptions {
 
 impl OutputOptions {
     fn new(cx: &Context<'_, '_>, unit: &Unit) -> OutputOptions {
-        let color = cx.bcx.config.shell().err_supports_color();
         let path = cx.files().message_cache_path(unit);
         // Remove old cache, ignore ENOENT, which is the common case.
         drop(fs::remove_file(&path));
         let cache_cell = Some((path, LazyCell::new()));
         OutputOptions {
             format: cx.bcx.build_config.message_format,
-            color,
             cache_cell,
             show_diagnostics: true,
             warnings_seen: 0,
@@ -1596,15 +1680,7 @@ fn on_stderr_line_inner(
                 if msg.rendered.ends_with('\n') {
                     msg.rendered.pop();
                 }
-                let rendered = if options.color {
-                    msg.rendered
-                } else {
-                    // Strip only fails if the Writer fails, which is Cursor
-                    // on a Vec, which should never fail.
-                    strip_ansi_escapes::strip(&msg.rendered)
-                        .map(|v| String::from_utf8(v).expect("utf8"))
-                        .expect("strip should never fail")
-                };
+                let rendered = msg.rendered;
                 if options.show_diagnostics {
                     let machine_applicable: bool = msg
                         .children
@@ -1635,9 +1711,7 @@ fn on_stderr_line_inner(
                 other: std::collections::BTreeMap<String, serde_json::Value>,
             }
             if let Ok(mut error) = serde_json::from_str::<CompilerMessage>(compiler_message.get()) {
-                error.rendered = strip_ansi_escapes::strip(&error.rendered)
-                    .map(|v| String::from_utf8(v).expect("utf8"))
-                    .unwrap_or(error.rendered);
+                error.rendered = anstream::adapter::strip_str(&error.rendered).to_string();
                 let new_line = serde_json::to_string(&error)?;
                 let new_msg: Box<serde_json::value::RawValue> = serde_json::from_str(&new_line)?;
                 compiler_message = new_msg;
@@ -1709,13 +1783,11 @@ fn replay_output_cache(
     target: &Target,
     path: PathBuf,
     format: MessageFormat,
-    color: bool,
     show_diagnostics: bool,
 ) -> Work {
     let target = target.clone();
     let mut options = OutputOptions {
         format,
-        color,
         cache_cell: None,
         show_diagnostics,
         warnings_seen: 0,

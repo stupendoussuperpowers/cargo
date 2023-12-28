@@ -65,6 +65,7 @@
 //! Target Name                                | ✓           | ✓
 //! TargetKind (bin/lib/etc.)                  | ✓           | ✓
 //! Enabled Features                           | ✓           | ✓
+//! Declared Features                          | ✓           |
 //! Immediate dependency’s hashes              | ✓[^1]       | ✓
 //! [`CompileKind`] (host/target)              | ✓           | ✓
 //! __CARGO_DEFAULT_LIB_METADATA[^4]           |             | ✓
@@ -366,10 +367,10 @@ use std::time::SystemTime;
 use anyhow::{bail, format_err, Context as _};
 use cargo_util::{paths, ProcessBuilder};
 use filetime::FileTime;
-use log::{debug, info};
 use serde::de;
 use serde::ser;
 use serde::{Deserialize, Serialize};
+use tracing::{debug, info};
 
 use crate::core::compiler::unit_graph::UnitDep;
 use crate::core::Package;
@@ -572,6 +573,8 @@ pub struct Fingerprint {
     rustc: u64,
     /// Sorted list of cfg features enabled.
     features: String,
+    /// Sorted list of all the declared cfg features.
+    declared_features: String,
     /// Hash of the `Target` struct, including the target name,
     /// package-relative source path, edition, etc.
     target: u64,
@@ -811,9 +814,8 @@ impl LocalFingerprint {
             // rustc.
             LocalFingerprint::CheckDepInfo { dep_info } => {
                 let dep_info = target_root.join(dep_info);
-                let info = match parse_dep_info(pkg_root, target_root, &dep_info)? {
-                    Some(info) => info,
-                    None => return Ok(Some(StaleItem::MissingFile(dep_info))),
+                let Some(info) = parse_dep_info(pkg_root, target_root, &dep_info)? else {
+                    return Ok(Some(StaleItem::MissingFile(dep_info)));
                 };
                 for (key, previous) in info.env.iter() {
                     let current = if key == CARGO_ENV {
@@ -877,6 +879,7 @@ impl Fingerprint {
             profile: 0,
             path: 0,
             features: String::new(),
+            declared_features: String::new(),
             deps: Vec::new(),
             local: Mutex::new(Vec::new()),
             memoized_hash: Mutex::new(None),
@@ -921,6 +924,12 @@ impl Fingerprint {
             return DirtyReason::FeaturesChanged {
                 old: old.features.clone(),
                 new: self.features.clone(),
+            };
+        }
+        if self.declared_features != old.declared_features {
+            return DirtyReason::DeclaredFeaturesChanged {
+                old: old.declared_features.clone(),
+                new: self.declared_features.clone(),
             };
         }
         if self.target != old.target {
@@ -1038,16 +1047,16 @@ impl Fingerprint {
         for (a, b) in self.deps.iter().zip(old.deps.iter()) {
             if a.name != b.name {
                 return DirtyReason::UnitDependencyNameChanged {
-                    old: b.name.clone(),
-                    new: a.name.clone(),
+                    old: b.name,
+                    new: a.name,
                 };
             }
 
             if a.fingerprint.hash_u64() != b.fingerprint.hash_u64() {
                 return DirtyReason::UnitDependencyInfoChanged {
-                    new_name: a.name.clone(),
+                    new_name: a.name,
                     new_fingerprint: a.fingerprint.hash_u64(),
-                    old_name: b.name.clone(),
+                    old_name: b.name,
                     old_fingerprint: b.fingerprint.hash_u64(),
                 };
             }
@@ -1103,16 +1112,12 @@ impl Fingerprint {
         }
 
         let opt_max = mtimes.iter().max_by_key(|kv| kv.1);
-        let (max_path, max_mtime) = match opt_max {
-            Some(mtime) => mtime,
-
+        let Some((max_path, max_mtime)) = opt_max else {
             // We had no output files. This means we're an overridden build
             // script and we're just always up to date because we aren't
             // watching the filesystem.
-            None => {
-                self.fs_status = FsStatus::UpToDate { mtimes };
-                return Ok(());
-            }
+            self.fs_status = FsStatus::UpToDate { mtimes };
+            return Ok(());
         };
         debug!(
             "max output mtime for {:?} is {:?} {}",
@@ -1127,9 +1132,7 @@ impl Fingerprint {
                 | FsStatus::StaleItem(_)
                 | FsStatus::StaleDependency { .. }
                 | FsStatus::StaleDepFingerprint { .. } => {
-                    self.fs_status = FsStatus::StaleDepFingerprint {
-                        name: dep.name.clone(),
-                    };
+                    self.fs_status = FsStatus::StaleDepFingerprint { name: dep.name };
                     return Ok(());
                 }
             };
@@ -1171,7 +1174,7 @@ impl Fingerprint {
                 );
 
                 self.fs_status = FsStatus::StaleDependency {
-                    name: dep.name.clone(),
+                    name: dep.name,
                     dep_mtime: *dep_mtime,
                     max_mtime: *max_mtime,
                 };
@@ -1207,6 +1210,7 @@ impl hash::Hash for Fingerprint {
         let Fingerprint {
             rustc,
             ref features,
+            ref declared_features,
             target,
             path,
             profile,
@@ -1222,6 +1226,7 @@ impl hash::Hash for Fingerprint {
         (
             rustc,
             features,
+            declared_features,
             target,
             path,
             profile,
@@ -1426,7 +1431,7 @@ fn calculate_normal(cx: &mut Context<'_, '_>, unit: &Unit) -> CargoResult<Finger
     let m = unit.pkg.manifest().metadata();
     let metadata = util::hash_u64((&m.authors, &m.description, &m.homepage, &m.repository));
     let mut config = StableHasher::new();
-    if let Some(linker) = cx.bcx.linker(unit.kind) {
+    if let Some(linker) = cx.compilation.target_linker(unit.kind) {
         linker.hash(&mut config);
     }
     if unit.mode.is_doc() && cx.bcx.config.cli_unstable().rustdoc_map {
@@ -1438,6 +1443,9 @@ fn calculate_normal(cx: &mut Context<'_, '_>, unit: &Unit) -> CargoResult<Finger
         allow_features.hash(&mut config);
     }
     let compile_kind = unit.kind.fingerprint_hash();
+    let mut declared_features = unit.pkg.summary().features().keys().collect::<Vec<_>>();
+    declared_features.sort(); // to avoid useless rebuild if the user orders it's features
+                              // differently
     Ok(Fingerprint {
         rustc: util::hash_u64(&cx.bcx.rustc().verbose_version),
         target: util::hash_u64(&unit.target),
@@ -1446,6 +1454,14 @@ fn calculate_normal(cx: &mut Context<'_, '_>, unit: &Unit) -> CargoResult<Finger
         // actually affect the output artifact so there's no need to hash it.
         path: util::hash_u64(path_args(cx.bcx.ws, unit).0),
         features: format!("{:?}", unit.features),
+        // Note we curently only populate `declared_features` when `-Zcheck-cfg`
+        // is passed since it's the only user-facing toggle that will make this
+        // fingerprint relevant.
+        declared_features: if cx.bcx.config.cli_unstable().check_cfg {
+            format!("{declared_features:?}")
+        } else {
+            "".to_string()
+        },
         deps,
         local: Mutex::new(local),
         memoized_hash: Mutex::new(None),
@@ -1771,7 +1787,7 @@ fn compare_old_fingerprint(
 
 /// Logs the result of fingerprint comparison.
 ///
-/// TODO: Obsolete and mostly superceded by [`DirtyReason`]. Could be removed.
+/// TODO: Obsolete and mostly superseded by [`DirtyReason`]. Could be removed.
 fn log_compare(unit: &Unit, compare: &CargoResult<Option<DirtyReason>>) {
     match compare {
         Ok(None) => {}
@@ -1808,16 +1824,12 @@ pub fn parse_dep_info(
     target_root: &Path,
     dep_info: &Path,
 ) -> CargoResult<Option<RustcDepInfo>> {
-    let data = match paths::read_bytes(dep_info) {
-        Ok(data) => data,
-        Err(_) => return Ok(None),
+    let Ok(data) = paths::read_bytes(dep_info) else {
+        return Ok(None);
     };
-    let info = match EncodedDepInfo::parse(&data) {
-        Some(info) => info,
-        None => {
-            log::warn!("failed to parse cargo's dep-info at {:?}", dep_info);
-            return Ok(None);
-        }
+    let Some(info) = EncodedDepInfo::parse(&data) else {
+        tracing::warn!("failed to parse cargo's dep-info at {:?}", dep_info);
+        return Ok(None);
     };
     let mut ret = RustcDepInfo::default();
     ret.env = info.env;
@@ -1831,7 +1843,7 @@ pub fn parse_dep_info(
     Ok(Some(ret))
 }
 
-/// Calcuates the fingerprint of a unit thats contains no dep-info files.
+/// Calculates the fingerprint of a unit thats contains no dep-info files.
 fn pkg_fingerprint(bcx: &BuildContext<'_, '_>, pkg: &Package) -> CargoResult<String> {
     let source_id = pkg.package_id().source_id();
     let sources = bcx.packages.sources();
@@ -1852,9 +1864,8 @@ where
     I: IntoIterator,
     I::Item: AsRef<Path>,
 {
-    let reference_mtime = match paths::mtime(reference) {
-        Ok(mtime) => mtime,
-        Err(..) => return Some(StaleItem::MissingFile(reference.to_path_buf())),
+    let Ok(reference_mtime) = paths::mtime(reference) else {
+        return Some(StaleItem::MissingFile(reference.to_path_buf()));
     };
 
     let skipable_dirs = if let Ok(cargo_home) = home::cargo_home() {
@@ -1882,9 +1893,8 @@ where
         let path_mtime = match mtime_cache.entry(path.to_path_buf()) {
             Entry::Occupied(o) => *o.get(),
             Entry::Vacant(v) => {
-                let mtime = match paths::mtime_recursive(path) {
-                    Ok(mtime) => mtime,
-                    Err(..) => return Some(StaleItem::MissingFile(path.to_path_buf())),
+                let Ok(mtime) = paths::mtime_recursive(path) else {
+                    return Some(StaleItem::MissingFile(path.to_path_buf()));
                 };
                 *v.insert(mtime)
             }
@@ -2156,9 +2166,8 @@ pub fn parse_rustc_dep_info(rustc_dep_info: &Path) -> CargoResult<RustcDepInfo> 
     for line in contents.lines() {
         if let Some(rest) = line.strip_prefix("# env-dep:") {
             let mut parts = rest.splitn(2, '=');
-            let env_var = match parts.next() {
-                Some(s) => s,
-                None => continue,
+            let Some(env_var) = parts.next() else {
+                continue;
             };
             let env_val = match parts.next() {
                 Some(s) => Some(unescape_env(s)?),

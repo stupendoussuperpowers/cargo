@@ -389,10 +389,10 @@ failures:
 ---- test_hello stdout ----
 [..]thread '[..]' panicked at [..]",
         )
-        .with_stdout_contains("[..]assertion failed[..]")
-        .with_stdout_contains("[..]`(left == right)`[..]")
-        .with_stdout_contains("[..]left: `\"hello\"`,[..]")
-        .with_stdout_contains("[..]right: `\"nope\"`[..]")
+        .with_stdout_contains("[..]assertion [..]failed[..]")
+        .with_stdout_contains("[..]left == right[..]")
+        .with_stdout_contains("[..]left: [..]\"hello\"[..]")
+        .with_stdout_contains("[..]right: [..]\"nope\"[..]")
         .with_stdout_contains("[..]src/main.rs:12[..]")
         .with_stdout_contains(
             "\
@@ -1433,7 +1433,7 @@ fn test_then_build() {
         .with_stdout_contains("running 0 tests")
         .run();
 
-    p.cargo("build").with_stdout("").run();
+    p.cargo("build").with_stderr("[FINISHED] [..]").run();
 }
 
 #[cargo_test]
@@ -2423,7 +2423,7 @@ fn dylib_doctest2() {
         )
         .build();
 
-    p.cargo("test").with_stdout("").run();
+    p.cargo("test").with_stderr("[FINISHED] [..]").run();
 }
 
 #[cargo_test]
@@ -3553,6 +3553,39 @@ fn cyclic_dev() {
         .build();
 
     p.cargo("test --workspace").run();
+}
+
+#[cargo_test]
+fn cyclical_dep_with_missing_feature() {
+    // Checks for error handling when a cyclical dev-dependency specify a
+    // feature that doesn't exist.
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.1.0"
+
+                [dev-dependencies]
+                foo = { path = ".", features = ["missing"] }
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+    p.cargo("check")
+        .with_status(101)
+        .with_stderr(
+            "error: failed to select a version for `foo`.
+    ... required by package `foo v0.1.0 ([..]/foo)`
+versions that meet the requirements `*` are: 0.1.0
+
+the package `foo` depends on `foo`, with features: `missing` but `foo` does not have these features.
+
+
+failed to select a version for `foo` which could resolve this conflict",
+        )
+        .run();
 }
 
 #[cargo_test]
@@ -4794,6 +4827,21 @@ error: test failed, to rerun pass `--test t2`
 
 Caused by:
   process didn't exit successfully: `[ROOT]/foo/target/debug/deps/t2[..]` (exit [..]: 4)
+note: test exited abnormally; to see the full output pass --nocapture to the harness.
+",
+        )
+        .with_status(4)
+        .run();
+
+    p.cargo("test --test t2 -- --nocapture")
+        .with_stderr(
+            "\
+[FINISHED] test [..]
+[RUNNING] tests/t2.rs (target/debug/deps/t2[..])
+error: test failed, to rerun pass `--test t2`
+
+Caused by:
+  process didn't exit successfully: `[ROOT]/foo/target/debug/deps/t2[..]` (exit [..]: 4)
 ",
         )
         .with_status(4)
@@ -4811,11 +4859,41 @@ error: test failed, to rerun pass `--test t2`
 
 Caused by:
   process didn't exit successfully: `[ROOT]/foo/target/debug/deps/t2[..]` (exit [..]: 4)
+note: test exited abnormally; to see the full output pass --nocapture to the harness.
 error: 2 targets failed:
     `--test t1`
     `--test t2`
 ",
         )
         .with_status(101)
+        .run();
+
+    p.cargo("test --no-fail-fast -- --nocapture")
+    .with_stderr_does_not_contain("test exited abnormally; to see the full output pass --nocapture to the harness.")
+    .with_stderr_contains("[..]thread 't' panicked [..] tests/t1[..]")
+    .with_stderr_contains("note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace")
+    .with_stderr_contains("[..]process didn't exit successfully: `[ROOT]/foo/target/debug/deps/t2[..]` (exit [..]: 4)")
+    .with_status(101)
+    .run();
+}
+
+#[cargo_test]
+fn cargo_test_print_env_verbose() {
+    let p = project()
+        .file("Cargo.toml", &basic_manifest("foo", "0.0.1"))
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("test -vv")
+        .with_stderr(
+            "\
+[COMPILING] foo v0.0.1 ([CWD])
+[RUNNING] `[..]CARGO_MANIFEST_DIR=[CWD][..] rustc --crate-name foo[..]`
+[RUNNING] `[..]CARGO_MANIFEST_DIR=[CWD][..] rustc --crate-name foo[..]`
+[FINISHED] test [unoptimized + debuginfo] target(s) in [..]
+[RUNNING] `[..]CARGO_MANIFEST_DIR=[CWD][..] [CWD]/target/debug/deps/foo-[..][EXE]`
+[DOCTEST] foo
+[RUNNING] `[..]CARGO_MANIFEST_DIR=[CWD][..] rustdoc --crate-type lib --crate-name foo[..]",
+        )
         .run();
 }

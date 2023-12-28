@@ -6,6 +6,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use anyhow::Context as _;
+use cargo_util_schemas::manifest::RustVersion;
+use cargo_util_schemas::manifest::{TomlManifest, TomlProfiles};
 use semver::Version;
 use serde::ser;
 use serde::Serialize;
@@ -18,7 +20,6 @@ use crate::core::{Dependency, PackageId, PackageIdSpec, SourceId, Summary};
 use crate::core::{Edition, Feature, Features, WorkspaceConfig};
 use crate::util::errors::*;
 use crate::util::interning::InternedString;
-use crate::util::toml::{TomlManifest, TomlProfiles};
 use crate::util::{short_hash, Config, Filesystem};
 
 pub enum EitherManifest {
@@ -58,7 +59,7 @@ pub struct Manifest {
     original: Rc<TomlManifest>,
     unstable_features: Features,
     edition: Edition,
-    rust_version: Option<String>,
+    rust_version: Option<RustVersion>,
     im_a_teapot: Option<bool>,
     default_run: Option<String>,
     metabuild: Option<Vec<String>>,
@@ -112,7 +113,7 @@ pub struct ManifestMetadata {
     pub documentation: Option<String>, // URL
     pub badges: BTreeMap<String, BTreeMap<String, String>>,
     pub links: Option<String>,
-    pub rust_version: Option<String>,
+    pub rust_version: Option<RustVersion>,
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -401,7 +402,7 @@ impl Manifest {
         workspace: WorkspaceConfig,
         unstable_features: Features,
         edition: Edition,
-        rust_version: Option<String>,
+        rust_version: Option<RustVersion>,
         im_a_teapot: Option<bool>,
         default_run: Option<String>,
         original: Rc<TomlManifest>,
@@ -570,8 +571,8 @@ impl Manifest {
         self.edition
     }
 
-    pub fn rust_version(&self) -> Option<&str> {
-        self.rust_version.as_deref()
+    pub fn rust_version(&self) -> Option<&RustVersion> {
+        self.rust_version.as_ref()
     }
 
     pub fn custom_metadata(&self) -> Option<&toml::Value> {

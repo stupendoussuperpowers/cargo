@@ -2,10 +2,12 @@ use std::fmt;
 use std::io::prelude::*;
 use std::io::IsTerminal;
 
-use termcolor::Color::{Cyan, Green, Red, Yellow};
-use termcolor::{self, Color, ColorSpec, StandardStream, WriteColor};
+use anstream::AutoStream;
+use anstyle::Style;
 
 use crate::util::errors::CargoResult;
+use crate::util::hostname;
+use crate::util::style::*;
 
 pub enum TtyWidth {
     NoTty,
@@ -56,6 +58,7 @@ pub struct Shell {
     /// Flag that indicates the current line needs to be cleared before
     /// printing. Used when a progress bar is currently displayed.
     needs_clear: bool,
+    hostname: Option<String>,
 }
 
 impl fmt::Debug for Shell {
@@ -77,13 +80,14 @@ impl fmt::Debug for Shell {
 /// A `Write`able object, either with or without color support
 enum ShellOut {
     /// A plain write object without color support
-    Write(Box<dyn Write>),
+    Write(AutoStream<Box<dyn Write>>),
     /// Color-enabled stdio, with information on whether color should be used
     Stream {
-        stdout: StandardStream,
-        stderr: StandardStream,
+        stdout: AutoStream<std::io::Stdout>,
+        stderr: AutoStream<std::io::Stderr>,
         stderr_tty: bool,
         color_choice: ColorChoice,
+        hyperlinks: bool,
     },
 }
 
@@ -103,24 +107,29 @@ impl Shell {
     /// output.
     pub fn new() -> Shell {
         let auto_clr = ColorChoice::CargoAuto;
+        let stdout_choice = auto_clr.to_anstream_color_choice();
+        let stderr_choice = auto_clr.to_anstream_color_choice();
         Shell {
             output: ShellOut::Stream {
-                stdout: StandardStream::stdout(auto_clr.to_termcolor_color_choice(Stream::Stdout)),
-                stderr: StandardStream::stderr(auto_clr.to_termcolor_color_choice(Stream::Stderr)),
-                color_choice: ColorChoice::CargoAuto,
+                stdout: AutoStream::new(std::io::stdout(), stdout_choice),
+                stderr: AutoStream::new(std::io::stderr(), stderr_choice),
+                color_choice: auto_clr,
+                hyperlinks: supports_hyperlinks(),
                 stderr_tty: std::io::stderr().is_terminal(),
             },
             verbosity: Verbosity::Verbose,
             needs_clear: false,
+            hostname: None,
         }
     }
 
     /// Creates a shell from a plain writable object, with no color, and max verbosity.
     pub fn from_write(out: Box<dyn Write>) -> Shell {
         Shell {
-            output: ShellOut::Write(out),
+            output: ShellOut::Write(AutoStream::never(out)), // strip all formatting on write
             verbosity: Verbosity::Verbose,
             needs_clear: false,
+            hostname: None,
         }
     }
 
@@ -130,7 +139,7 @@ impl Shell {
         &mut self,
         status: &dyn fmt::Display,
         message: Option<&dyn fmt::Display>,
-        color: Color,
+        color: &Style,
         justified: bool,
     ) -> CargoResult<()> {
         match self.verbosity {
@@ -203,14 +212,14 @@ impl Shell {
         T: fmt::Display,
         U: fmt::Display,
     {
-        self.print(&status, Some(&message), Green, true)
+        self.print(&status, Some(&message), &HEADER, true)
     }
 
     pub fn status_header<T>(&mut self, status: T) -> CargoResult<()>
     where
         T: fmt::Display,
     {
-        self.print(&status, None, Cyan, true)
+        self.print(&status, None, &NOTE, true)
     }
 
     /// Shortcut to right-align a status message.
@@ -218,7 +227,7 @@ impl Shell {
         &mut self,
         status: T,
         message: U,
-        color: Color,
+        color: &Style,
     ) -> CargoResult<()>
     where
         T: fmt::Display,
@@ -255,20 +264,20 @@ impl Shell {
             self.err_erase_line();
         }
         self.output
-            .message_stderr(&"error", Some(&message), Red, false)
+            .message_stderr(&"error", Some(&message), &ERROR, false)
     }
 
     /// Prints an amber 'warning' message.
     pub fn warn<T: fmt::Display>(&mut self, message: T) -> CargoResult<()> {
         match self.verbosity {
             Verbosity::Quiet => Ok(()),
-            _ => self.print(&"warning", Some(&message), Yellow, false),
+            _ => self.print(&"warning", Some(&message), &WARN, false),
         }
     }
 
     /// Prints a cyan 'note' message.
     pub fn note<T: fmt::Display>(&mut self, message: T) -> CargoResult<()> {
-        self.print(&"note", Some(&message), Cyan, false)
+        self.print(&"note", Some(&message), &NOTE, false)
     }
 
     /// Updates the verbosity of the shell.
@@ -303,8 +312,20 @@ impl Shell {
                 ),
             };
             *color_choice = cfg;
-            *stdout = StandardStream::stdout(cfg.to_termcolor_color_choice(Stream::Stdout));
-            *stderr = StandardStream::stderr(cfg.to_termcolor_color_choice(Stream::Stderr));
+            let stdout_choice = cfg.to_anstream_color_choice();
+            let stderr_choice = cfg.to_anstream_color_choice();
+            *stdout = AutoStream::new(std::io::stdout(), stdout_choice);
+            *stderr = AutoStream::new(std::io::stderr(), stderr_choice);
+        }
+        Ok(())
+    }
+
+    pub fn set_hyperlinks(&mut self, yes: bool) -> CargoResult<()> {
+        if let ShellOut::Stream {
+            ref mut hyperlinks, ..
+        } = self.output
+        {
+            *hyperlinks = yes;
         }
         Ok(())
     }
@@ -324,50 +345,76 @@ impl Shell {
     pub fn err_supports_color(&self) -> bool {
         match &self.output {
             ShellOut::Write(_) => false,
-            ShellOut::Stream { stderr, .. } => stderr.supports_color(),
+            ShellOut::Stream { stderr, .. } => supports_color(stderr.current_choice()),
         }
     }
 
     pub fn out_supports_color(&self) -> bool {
         match &self.output {
             ShellOut::Write(_) => false,
-            ShellOut::Stream { stdout, .. } => stdout.supports_color(),
+            ShellOut::Stream { stdout, .. } => supports_color(stdout.current_choice()),
         }
     }
 
-    /// Write a styled fragment
-    ///
-    /// Caller is responsible for deciding whether [`Shell::verbosity`] is affects output.
-    pub fn write_stdout(
-        &mut self,
-        fragment: impl fmt::Display,
-        color: &ColorSpec,
-    ) -> CargoResult<()> {
-        self.output.write_stdout(fragment, color)
+    pub fn out_hyperlink<D: fmt::Display>(&self, url: D) -> Hyperlink<D> {
+        let supports_hyperlinks = match &self.output {
+            ShellOut::Write(_) => false,
+            ShellOut::Stream {
+                stdout, hyperlinks, ..
+            } => stdout.current_choice() == anstream::ColorChoice::AlwaysAnsi && *hyperlinks,
+        };
+        Hyperlink {
+            url: supports_hyperlinks.then_some(url),
+        }
     }
 
-    /// Write a styled fragment
-    ///
-    /// Caller is responsible for deciding whether [`Shell::verbosity`] is affects output.
-    pub fn write_stderr(
-        &mut self,
-        fragment: impl fmt::Display,
-        color: &ColorSpec,
-    ) -> CargoResult<()> {
-        self.output.write_stderr(fragment, color)
+    pub fn err_hyperlink<D: fmt::Display>(&self, url: D) -> Hyperlink<D> {
+        let supports_hyperlinks = match &self.output {
+            ShellOut::Write(_) => false,
+            ShellOut::Stream {
+                stderr, hyperlinks, ..
+            } => stderr.current_choice() == anstream::ColorChoice::AlwaysAnsi && *hyperlinks,
+        };
+        if supports_hyperlinks {
+            Hyperlink { url: Some(url) }
+        } else {
+            Hyperlink { url: None }
+        }
+    }
+
+    pub fn out_file_hyperlink(&mut self, path: &std::path::Path) -> Hyperlink<url::Url> {
+        let url = self.file_hyperlink(path);
+        url.map(|u| self.out_hyperlink(u)).unwrap_or_default()
+    }
+
+    pub fn err_file_hyperlink(&mut self, path: &std::path::Path) -> Hyperlink<url::Url> {
+        let url = self.file_hyperlink(path);
+        url.map(|u| self.err_hyperlink(u)).unwrap_or_default()
+    }
+
+    fn file_hyperlink(&mut self, path: &std::path::Path) -> Option<url::Url> {
+        let mut url = url::Url::from_file_path(path).ok()?;
+        // Do a best-effort of setting the host in the URL to avoid issues with opening a link
+        // scoped to the computer you've SSHed into
+        let hostname = if cfg!(windows) {
+            // Not supported correctly on windows
+            None
+        } else {
+            if let Some(hostname) = self.hostname.as_deref() {
+                Some(hostname)
+            } else {
+                self.hostname = hostname().ok().and_then(|h| h.into_string().ok());
+                self.hostname.as_deref()
+            }
+        };
+        let _ = url.set_host(hostname);
+        Some(url)
     }
 
     /// Prints a message to stderr and translates ANSI escape code into console colors.
     pub fn print_ansi_stderr(&mut self, message: &[u8]) -> CargoResult<()> {
         if self.needs_clear {
             self.err_erase_line();
-        }
-        #[cfg(windows)]
-        {
-            if let ShellOut::Stream { stderr, .. } = &mut self.output {
-                ::fwdansi::write_ansi(stderr, message)?;
-                return Ok(());
-            }
         }
         self.err().write_all(message)?;
         Ok(())
@@ -377,13 +424,6 @@ impl Shell {
     pub fn print_ansi_stdout(&mut self, message: &[u8]) -> CargoResult<()> {
         if self.needs_clear {
             self.err_erase_line();
-        }
-        #[cfg(windows)]
-        {
-            if let ShellOut::Stream { stdout, .. } = &mut self.output {
-                ::fwdansi::write_ansi(stdout, message)?;
-                return Ok(());
-            }
         }
         self.out().write_all(message)?;
         Ok(())
@@ -412,70 +452,24 @@ impl ShellOut {
         &mut self,
         status: &dyn fmt::Display,
         message: Option<&dyn fmt::Display>,
-        color: Color,
+        style: &Style,
         justified: bool,
     ) -> CargoResult<()> {
-        match *self {
-            ShellOut::Stream { ref mut stderr, .. } => {
-                stderr.reset()?;
-                stderr.set_color(ColorSpec::new().set_bold(true).set_fg(Some(color)))?;
-                if justified {
-                    write!(stderr, "{:>12}", status)?;
-                } else {
-                    write!(stderr, "{}", status)?;
-                    stderr.set_color(ColorSpec::new().set_bold(true))?;
-                    write!(stderr, ":")?;
-                }
-                stderr.reset()?;
-                match message {
-                    Some(message) => writeln!(stderr, " {}", message)?,
-                    None => write!(stderr, " ")?,
-                }
-            }
-            ShellOut::Write(ref mut w) => {
-                if justified {
-                    write!(w, "{:>12}", status)?;
-                } else {
-                    write!(w, "{}:", status)?;
-                }
-                match message {
-                    Some(message) => writeln!(w, " {}", message)?,
-                    None => write!(w, " ")?,
-                }
-            }
-        }
-        Ok(())
-    }
+        let style = style.render();
+        let bold = (anstyle::Style::new() | anstyle::Effects::BOLD).render();
+        let reset = anstyle::Reset.render();
 
-    /// Write a styled fragment
-    fn write_stdout(&mut self, fragment: impl fmt::Display, color: &ColorSpec) -> CargoResult<()> {
-        match *self {
-            ShellOut::Stream { ref mut stdout, .. } => {
-                stdout.reset()?;
-                stdout.set_color(&color)?;
-                write!(stdout, "{}", fragment)?;
-                stdout.reset()?;
-            }
-            ShellOut::Write(ref mut w) => {
-                write!(w, "{}", fragment)?;
-            }
+        let mut buffer = Vec::new();
+        if justified {
+            write!(&mut buffer, "{style}{status:>12}{reset}")?;
+        } else {
+            write!(&mut buffer, "{style}{status}{reset}{bold}:{reset}")?;
         }
-        Ok(())
-    }
-
-    /// Write a styled fragment
-    fn write_stderr(&mut self, fragment: impl fmt::Display, color: &ColorSpec) -> CargoResult<()> {
-        match *self {
-            ShellOut::Stream { ref mut stderr, .. } => {
-                stderr.reset()?;
-                stderr.set_color(&color)?;
-                write!(stderr, "{}", fragment)?;
-                stderr.reset()?;
-            }
-            ShellOut::Write(ref mut w) => {
-                write!(w, "{}", fragment)?;
-            }
+        match message {
+            Some(message) => writeln!(buffer, " {message}")?,
+            None => write!(buffer, " ")?,
         }
+        self.stderr().write_all(&buffer)?;
         Ok(())
     }
 
@@ -497,32 +491,59 @@ impl ShellOut {
 }
 
 impl ColorChoice {
-    /// Converts our color choice to termcolor's version.
-    fn to_termcolor_color_choice(self, stream: Stream) -> termcolor::ColorChoice {
+    /// Converts our color choice to anstream's version.
+    fn to_anstream_color_choice(self) -> anstream::ColorChoice {
         match self {
-            ColorChoice::Always => termcolor::ColorChoice::Always,
-            ColorChoice::Never => termcolor::ColorChoice::Never,
-            ColorChoice::CargoAuto => {
-                if stream.is_terminal() {
-                    termcolor::ColorChoice::Auto
-                } else {
-                    termcolor::ColorChoice::Never
-                }
-            }
+            ColorChoice::Always => anstream::ColorChoice::Always,
+            ColorChoice::Never => anstream::ColorChoice::Never,
+            ColorChoice::CargoAuto => anstream::ColorChoice::Auto,
         }
     }
 }
 
-enum Stream {
-    Stdout,
-    Stderr,
+fn supports_color(choice: anstream::ColorChoice) -> bool {
+    match choice {
+        anstream::ColorChoice::Always
+        | anstream::ColorChoice::AlwaysAnsi
+        | anstream::ColorChoice::Auto => true,
+        anstream::ColorChoice::Never => false,
+    }
 }
 
-impl Stream {
-    fn is_terminal(self) -> bool {
-        match self {
-            Self::Stdout => std::io::stdout().is_terminal(),
-            Self::Stderr => std::io::stderr().is_terminal(),
+fn supports_hyperlinks() -> bool {
+    #[allow(clippy::disallowed_methods)] // We are reading the state of the system, not config
+    if std::env::var_os("TERM_PROGRAM").as_deref() == Some(std::ffi::OsStr::new("iTerm.app")) {
+        // Override `supports_hyperlinks` as we have an unknown incompatibility with iTerm2
+        return false;
+    }
+
+    supports_hyperlinks::supports_hyperlinks()
+}
+
+pub struct Hyperlink<D: fmt::Display> {
+    url: Option<D>,
+}
+
+impl<D: fmt::Display> Default for Hyperlink<D> {
+    fn default() -> Self {
+        Self { url: None }
+    }
+}
+
+impl<D: fmt::Display> Hyperlink<D> {
+    pub fn open(&self) -> impl fmt::Display {
+        if let Some(url) = self.url.as_ref() {
+            format!("\x1B]8;;{url}\x1B\\")
+        } else {
+            String::new()
+        }
+    }
+
+    pub fn close(&self) -> impl fmt::Display {
+        if self.url.is_some() {
+            "\x1B]8;;\x1B\\"
+        } else {
+            ""
         }
     }
 }

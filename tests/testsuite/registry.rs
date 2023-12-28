@@ -549,7 +549,7 @@ fn lockfile_locks() {
     p.root().move_into_the_past();
     Package::new("bar", "0.0.2").publish();
 
-    p.cargo("check").with_stdout("").run();
+    p.cargo("check").with_stderr("[FINISHED] [..]").run();
 }
 
 #[cargo_test]
@@ -602,7 +602,7 @@ fn lockfile_locks_transitively() {
     Package::new("baz", "0.0.2").publish();
     Package::new("bar", "0.0.2").dep("baz", "*").publish();
 
-    p.cargo("check").with_stdout("").run();
+    p.cargo("check").with_stderr("[FINISHED] [..]").run();
 }
 
 #[cargo_test]
@@ -739,7 +739,7 @@ fn yanks_in_lockfiles_are_ok() {
 
     Package::new("bar", "0.0.1").yanked(true).publish();
 
-    p.cargo("check").with_stdout("").run();
+    p.cargo("check").with_stderr("[FINISHED] [..]").run();
 
     p.cargo("update")
         .with_status(101)
@@ -792,7 +792,7 @@ fn yanks_in_lockfiles_are_ok_for_other_update() {
     Package::new("bar", "0.0.1").yanked(true).publish();
     Package::new("baz", "0.0.1").publish();
 
-    p.cargo("check").with_stdout("").run();
+    p.cargo("check").with_stderr("[FINISHED] [..]").run();
 
     Package::new("baz", "0.0.2").publish();
 
@@ -807,7 +807,7 @@ required by package `foo v0.0.1 ([..])`
         )
         .run();
 
-    p.cargo("update -p baz")
+    p.cargo("update baz")
         .with_stderr_contains(
             "\
 [UPDATING] `[..]` index
@@ -868,7 +868,18 @@ fn yanks_in_lockfiles_are_ok_with_new_dep() {
         "#,
     );
 
-    p.cargo("check").with_stdout("").run();
+    p.cargo("check")
+        .with_stderr(
+            "\
+[UPDATING] `dummy-registry` index
+[DOWNLOADING] crates ...
+[DOWNLOADED] baz v0.0.1 (registry `dummy-registry`)
+[CHECKING] baz v0.0.1
+[CHECKING] foo v0.0.1 [..]
+[FINISHED] [..]
+",
+        )
+        .run();
 }
 
 #[cargo_test]
@@ -952,7 +963,7 @@ fn update_lockfile() {
     Package::new("bar", "0.0.3").publish();
     paths::home().join(".cargo/registry").rm_rf();
     println!("0.0.2 update");
-    p.cargo("update -p bar --precise 0.0.2")
+    p.cargo("update bar --precise 0.0.2")
         .with_stderr(
             "\
 [UPDATING] `[..]` index
@@ -975,7 +986,7 @@ fn update_lockfile() {
         .run();
 
     println!("0.0.3 update");
-    p.cargo("update -p bar")
+    p.cargo("update bar")
         .with_stderr(
             "\
 [UPDATING] `[..]` index
@@ -1000,7 +1011,7 @@ fn update_lockfile() {
     println!("new dependencies update");
     Package::new("bar", "0.0.4").dep("spam", "0.2.5").publish();
     Package::new("spam", "0.2.5").publish();
-    p.cargo("update -p bar")
+    p.cargo("update bar")
         .with_stderr(
             "\
 [UPDATING] `[..]` index
@@ -1012,7 +1023,7 @@ fn update_lockfile() {
 
     println!("new dependencies update");
     Package::new("bar", "0.0.5").publish();
-    p.cargo("update -p bar")
+    p.cargo("update bar")
         .with_stderr(
             "\
 [UPDATING] `[..]` index
@@ -1272,7 +1283,7 @@ fn git_and_registry_dep() {
     p.root().move_into_the_past();
 
     println!("second");
-    p.cargo("check").with_stdout("").run();
+    p.cargo("check").with_stderr("[FINISHED] [..]").run();
 }
 
 #[cargo_test]
@@ -1433,7 +1444,7 @@ fn update_transitive_dependency() {
 
     Package::new("b", "0.1.1").publish();
 
-    p.cargo("update -pb")
+    p.cargo("update b")
         .with_stderr(
             "\
 [UPDATING] `[..]` index
@@ -1504,7 +1515,7 @@ fn update_backtracking_ok() {
         .dep("cookie", "0.1.0")
         .publish();
 
-    p.cargo("update -p hyper")
+    p.cargo("update hyper")
         .with_stderr(
             "\
 [UPDATING] `[..]` index
@@ -1555,7 +1566,7 @@ fn update_multiple_packages() {
     Package::new("b", "0.1.1").publish();
     Package::new("c", "0.1.1").publish();
 
-    p.cargo("update -pa -pb")
+    p.cargo("update a b")
         .with_stderr(
             "\
 [UPDATING] `[..]` index
@@ -1565,7 +1576,7 @@ fn update_multiple_packages() {
         )
         .run();
 
-    p.cargo("update -pb -pc")
+    p.cargo("update b c")
         .with_stderr(
             "\
 [UPDATING] `[..]` index
@@ -1671,7 +1682,7 @@ fn update_same_prefix_oh_my_how_was_this_a_bug() {
         .publish();
 
     p.cargo("generate-lockfile").run();
-    p.cargo("update -pfoobar --precise=0.2.0").run();
+    p.cargo("update foobar --precise=0.2.0").run();
 }
 
 #[cargo_test]
@@ -1756,12 +1767,12 @@ fn use_semver_package_incorrectly() {
         .with_status(101)
         .with_stderr(
             "\
-error: no matching package found
-searched package name: `a`
-prerelease package needs to be specified explicitly
-a = { version = \"0.1.1-alpha.0\" }
+error: failed to select a version for the requirement `a = \"^0.1\"`
+candidate versions found which didn't match: 0.1.1-alpha.0
 location searched: [..]
 required by package `b v0.1.0 ([..])`
+if you are looking for the prerelease package it needs to be specified explicitly
+    a = { version = \"0.1.1-alpha.0\" }
 ",
         )
         .run();
@@ -2604,7 +2615,9 @@ fn ignores_unknown_index_version_git() {
 fn ignores_unknown_index_version() {
     // If the version field is not understood, it is ignored.
     Package::new("bar", "1.0.0").publish();
-    Package::new("bar", "1.0.1").schema_version(9999).publish();
+    Package::new("bar", "1.0.1")
+        .schema_version(u32::MAX)
+        .publish();
 
     let p = project()
         .file(
@@ -2626,6 +2639,41 @@ fn ignores_unknown_index_version() {
             "foo v0.1.0 [..]\n\
              └── bar v1.0.0\n\
             ",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn unknown_index_version_error() {
+    // If the version field is not understood, it is ignored.
+    Package::new("bar", "1.0.1")
+        .schema_version(u32::MAX)
+        .publish();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.1.0"
+
+                [dependencies]
+                bar = "1.0"
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("generate-lockfile")
+        .with_status(101)
+        .with_stderr(
+            "\
+[UPDATING] `dummy-registry` index
+[ERROR] no matching package named `bar` found
+location searched: registry `crates-io`
+required by package `foo v0.1.0 ([CWD])`
+",
         )
         .run();
 }
@@ -3528,4 +3576,90 @@ fn unpack_again_when_cargo_ok_is_unrecognized() {
     assert!(!perms.readonly());
     let ok = fs::read_to_string(&cargo_ok).unwrap();
     assert_eq!(&ok, r#"{"v":1}"#);
+}
+
+#[cargo_test]
+fn differ_only_by_metadata() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+                authors = []
+
+                [dependencies]
+                baz = "=0.0.1"
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    Package::new("baz", "0.0.1+b").publish();
+    Package::new("baz", "0.0.1+c").yanked(true).publish();
+
+    p.cargo("check")
+        .with_stderr(
+            "\
+[UPDATING] `dummy-registry` index
+[DOWNLOADING] crates ...
+[DOWNLOADED] [..] v0.0.1+b (registry `dummy-registry`)
+[CHECKING] baz v0.0.1+b
+[CHECKING] foo v0.0.1 ([CWD])
+[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+",
+        )
+        .run();
+
+    Package::new("baz", "0.0.1+d").publish();
+
+    p.cargo("clean").run();
+    p.cargo("check")
+        .with_stderr_contains("[CHECKING] baz v0.0.1+b")
+        .run();
+}
+
+#[cargo_test]
+fn differ_only_by_metadata_with_lockfile() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+                authors = []
+
+                [dependencies]
+                baz = "=0.0.1"
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    Package::new("baz", "0.0.1+a").publish();
+    Package::new("baz", "0.0.1+b").publish();
+    Package::new("baz", "0.0.1+c").publish();
+
+    p.cargo("update --package baz --precise 0.0.1+b")
+        .with_stderr(
+            "\
+[UPDATING] [..] index
+[..] baz v0.0.1+c -> v0.0.1+b
+",
+        )
+        .run();
+
+    p.cargo("check")
+        .with_stderr(
+            "\
+[DOWNLOADING] crates ...
+[DOWNLOADED] [..] v0.0.1+b (registry `dummy-registry`)
+[CHECKING] baz v0.0.1+b
+[CHECKING] foo v0.0.1 ([CWD])
+[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+",
+        )
+        .run();
 }

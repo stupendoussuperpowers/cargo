@@ -342,7 +342,7 @@ fn check_ssh_known_hosts(
             };
             match parse_known_hosts_line(&line_value.val, location) {
                 Some(known_host) => known_hosts.push(known_host),
-                None => log::warn!(
+                None => tracing::warn!(
                     "failed to parse known host {} from {}",
                     line_value.val,
                     line_value.definition
@@ -538,7 +538,7 @@ fn user_known_host_location() -> Option<PathBuf> {
     // - OpenSSH (most unix platforms): Uses `pw->pw_dir` from `getpwuid()`.
     //
     // This doesn't do anything close to that. home_dir's behavior is:
-    // - Windows: $USERPROFILE, or SHGetFolderPathW()
+    // - Windows: $USERPROFILE, or SHGetKnownFolderPath()
     // - Unix: $HOME, or getpwuid_r()
     //
     // Since there is a mismatch here, the location returned here might be

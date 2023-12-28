@@ -1,7 +1,5 @@
 //! Helpers for validating and checking names like package and crate names.
 
-use crate::util::CargoResult;
-use anyhow::bail;
 use std::path::Path;
 
 /// Returns `true` if the name contains non-ASCII characters.
@@ -34,76 +32,6 @@ pub fn is_windows_reserved(name: &str) -> bool {
 /// An artifact with this name will conflict with one of Cargo's build directories.
 pub fn is_conflicting_artifact_name(name: &str) -> bool {
     ["deps", "examples", "build", "incremental"].contains(&name)
-}
-
-/// Check the base requirements for a package name.
-///
-/// This can be used for other things than package names, to enforce some
-/// level of sanity. Note that package names have other restrictions
-/// elsewhere. `cargo new` has a few restrictions, such as checking for
-/// reserved names. crates.io has even more restrictions.
-pub fn validate_package_name(name: &str, what: &str, help: &str) -> CargoResult<()> {
-    let mut chars = name.chars();
-    if let Some(ch) = chars.next() {
-        if ch.is_digit(10) {
-            // A specific error for a potentially common case.
-            bail!(
-                "the name `{}` cannot be used as a {}, \
-                the name cannot start with a digit{}",
-                name,
-                what,
-                help
-            );
-        }
-        if !(unicode_xid::UnicodeXID::is_xid_start(ch) || ch == '_') {
-            bail!(
-                "invalid character `{}` in {}: `{}`, \
-                the first character must be a Unicode XID start character \
-                (most letters or `_`){}",
-                ch,
-                what,
-                name,
-                help
-            );
-        }
-    }
-    for ch in chars {
-        if !(unicode_xid::UnicodeXID::is_xid_continue(ch) || ch == '-') {
-            bail!(
-                "invalid character `{}` in {}: `{}`, \
-                characters must be Unicode XID characters \
-                (numbers, `-`, `_`, or most letters){}",
-                ch,
-                what,
-                name,
-                help
-            );
-        }
-    }
-    Ok(())
-}
-
-/// Ensure a package name is [valid][validate_package_name]
-pub fn sanitize_package_name(name: &str, placeholder: char) -> String {
-    let mut slug = String::new();
-    let mut chars = name.chars();
-    while let Some(ch) = chars.next() {
-        if (unicode_xid::UnicodeXID::is_xid_start(ch) || ch == '_') && !ch.is_digit(10) {
-            slug.push(ch);
-            break;
-        }
-    }
-    while let Some(ch) = chars.next() {
-        if unicode_xid::UnicodeXID::is_xid_continue(ch) || ch == '-' {
-            slug.push(ch);
-        } else {
-            slug.push(placeholder);
-        }
-    }
-    if slug.is_empty() {
-        slug.push_str("package");
-    }
-    slug
 }
 
 /// Check the entire path for names reserved in Windows.

@@ -328,7 +328,7 @@ fn profile_selection_test() {
 [RUNNING] `[..]/deps/foo-[..]`
 [RUNNING] `[..]/deps/test1-[..]`
 [DOCTEST] foo
-[RUNNING] `rustdoc [..]--test [..]
+[RUNNING] `[..] rustdoc [..]--test [..]
 ").run();
     p.cargo("test -vv")
         .with_stderr_unordered(
@@ -341,7 +341,7 @@ fn profile_selection_test() {
 [RUNNING] `[..]/deps/foo-[..]`
 [RUNNING] `[..]/deps/test1-[..]`
 [DOCTEST] foo
-[RUNNING] `rustdoc [..]--test [..]
+[RUNNING] `[..] rustdoc [..]--test [..]
 ",
         )
         .run();
@@ -395,7 +395,7 @@ fn profile_selection_test_release() {
 [RUNNING] `[..]/deps/foo-[..]`
 [RUNNING] `[..]/deps/test1-[..]`
 [DOCTEST] foo
-[RUNNING] `rustdoc [..]--test [..]`
+[RUNNING] `[..] rustdoc [..]--test [..]`
 ").run();
     p.cargo("test --release -vv")
         .with_stderr_unordered(
@@ -408,7 +408,7 @@ fn profile_selection_test_release() {
 [RUNNING] `[..]/deps/foo-[..]`
 [RUNNING] `[..]/deps/test1-[..]`
 [DOCTEST] foo
-[RUNNING] `rustdoc [..]--test [..]
+[RUNNING] `[..] rustdoc [..]--test [..]
 ",
         )
         .run();
@@ -667,5 +667,6 @@ fn profile_selection_doc() {
 [DOCUMENTING] foo [..]
 [RUNNING] `rustdoc [..]--crate-name foo src/lib.rs [..]
 [FINISHED] dev [unoptimized + debuginfo] [..]
+[GENERATED] [CWD]/target/doc/foo/index.html
 ").run();
 }

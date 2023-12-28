@@ -32,6 +32,17 @@ Options:
           
           The package will be removed from your features.
 
+      --public
+          Mark the dependency as public
+          
+          The dependency can be referenced in your library's public API.
+
+      --no-public
+          Mark the dependency as private
+          
+          While you can use the crate in your implementation, it cannot be referenced in your public
+          API.
+
       --rename <NAME>
           Rename the dependency
           
@@ -42,26 +53,30 @@ Options:
       --ignore-rust-version
           Ignore `rust-version` specification in packages (unstable)
 
-      --manifest-path <PATH>
-          Path to Cargo.toml
-
-  -p, --package [<SPEC>]
-          Package to modify
-
-  -q, --quiet
-          Do not print cargo log messages
-
-      --dry-run
+  -n, --dry-run
           Don't actually write the manifest
-
-  -h, --help
-          Print help (see a summary with '-h')
 
   -v, --verbose...
           Use verbose output (-vv very verbose/build.rs output)
 
+  -q, --quiet
+          Do not print cargo log messages
+
       --color <WHEN>
           Coloring: auto, always, never
+
+      --config <KEY=VALUE>
+          Override a configuration value
+
+  -Z <FLAG>
+          Unstable (nightly-only) flags to Cargo, see 'cargo -Z help' for details
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Manifest Options:
+      --manifest-path <PATH>
+          Path to Cargo.toml
 
       --frozen
           Require Cargo.lock and cache are up to date
@@ -72,11 +87,9 @@ Options:
       --offline
           Run without accessing the network
 
-      --config <KEY=VALUE>
-          Override a configuration value
-
-  -Z <FLAG>
-          Unstable (nightly-only) flags to Cargo, see 'cargo -Z help' for details
+Package Selection:
+  -p, --package [<SPEC>]
+          Package to modify
 
 Source:
       --path <PATH>

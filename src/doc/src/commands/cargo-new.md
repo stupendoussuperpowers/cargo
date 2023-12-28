@@ -35,7 +35,7 @@ This is the default behavior.</dd>
 
 <dt class="option-term" id="option-cargo-new---edition"><a class="option-anchor" href="#option-cargo-new---edition"></a><code>--edition</code> <em>edition</em></dt>
 <dd class="option-desc">Specify the Rust edition to use. Default is 2021.
-Possible values: 2015, 2018, 2021</dd>
+Possible values: 2015, 2018, 2021, 2024</dd>
 
 
 <dt class="option-term" id="option-cargo-new---name"><a class="option-anchor" href="#option-cargo-new---name"></a><code>--name</code> <em>name</em></dt>
@@ -60,7 +60,6 @@ be restricted.</dd>
 
 
 </dl>
-
 
 ### Display Options
 
@@ -90,7 +89,6 @@ terminal.</li>
 </ul>
 <p>May also be specified with the <code>term.color</code>
 <a href="../reference/config.html">config value</a>.</dd>
-
 
 </dl>
 
@@ -134,18 +132,15 @@ requires the <code>-Z unstable-options</code> flag to enable (see
 
 </dl>
 
-
 ## ENVIRONMENT
 
 See [the reference](../reference/environment-variables.html) for
 details on environment variables that Cargo reads.
 
-
 ## EXIT STATUS
 
 * `0`: Cargo succeeded.
 * `101`: Cargo failed to complete.
-
 
 ## EXAMPLES
 

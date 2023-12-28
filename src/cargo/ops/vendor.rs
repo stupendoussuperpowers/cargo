@@ -4,6 +4,7 @@ use crate::core::{GitReference, Package, Workspace};
 use crate::ops;
 use crate::sources::path::PathSource;
 use crate::sources::CRATES_IO_REGISTRY;
+use crate::util::cache_lock::CacheLockMode;
 use crate::util::{try_canonicalize, CargoResult, Config};
 use anyhow::{bail, Context as _};
 use cargo_util::{paths, Sha256};
@@ -31,6 +32,7 @@ pub fn vendor(ws: &Workspace<'_>, opts: &VendorOptions<'_>) -> CargoResult<()> {
         extra_workspaces.push(ws);
     }
     let workspaces = extra_workspaces.iter().chain(Some(ws)).collect::<Vec<_>>();
+    let _lock = config.acquire_package_cache_lock(CacheLockMode::MutateExclusive)?;
     let vendor_config = sync(config, &workspaces, opts).with_context(|| "failed to sync")?;
 
     if config.shell().verbosity() != Verbosity::Quiet {
@@ -258,7 +260,7 @@ fn sync(
         } else {
             // Remove `precise` since that makes the source name very long,
             // and isn't needed to disambiguate multiple sources.
-            source_id.with_precise(None).as_url().to_string()
+            source_id.without_precise().as_url().to_string()
         };
 
         let source = if source_id.is_crates_io() {

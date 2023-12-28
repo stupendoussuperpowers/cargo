@@ -309,7 +309,7 @@ See also the \fB\-\-profile\fR option for choosing a specific profile by name.
 \fB\-\-profile\fR \fIname\fR
 .RS 4
 Test with the given profile.
-See the \fIthe reference\fR <https://doc.rust\-lang.org/cargo/reference/profiles.html> for more details on profiles.
+See \fIthe reference\fR <https://doc.rust\-lang.org/cargo/reference/profiles.html> for more details on profiles.
 .RE
 .sp
 \fB\-\-ignore\-rust\-version\fR
@@ -535,19 +535,24 @@ a string \fBdefault\fR is provided, it sets the value back to defaults.
 Should not be 0.
 .RE
 .sp
-\fB\-\-keep\-going\fR
-.RS 4
-Build as many crates in the dependency graph as possible, rather than aborting
-the build on the first one that fails to build. Unstable, requires
-\fB\-Zunstable\-options\fR\&.
-.RE
-.sp
 \fB\-\-future\-incompat\-report\fR
 .RS 4
 Displays a future\-incompat report for any future\-incompatible warnings
 produced during execution of this command
 .sp
 See \fBcargo\-report\fR(1)
+.RE
+.sp
+While \fBcargo test\fR involves compilation, it does not provide a \fB\-\-keep\-going\fR
+flag. Use \fB\-\-no\-fail\-fast\fR to run as many tests as possible without stopping at
+the first failure. To \[lq]compile\[rq] as many tests as possible, use \fB\-\-tests\fR to
+build test binaries separately. For example:
+.sp
+.RS 4
+.nf
+cargo build \-\-tests \-\-keep\-going
+cargo test \-\-tests \-\-no\-fail\-fast
+.fi
 .RE
 .SH "ENVIRONMENT"
 See \fIthe reference\fR <https://doc.rust\-lang.org/cargo/reference/environment\-variables.html> for

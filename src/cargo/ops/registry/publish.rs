@@ -21,15 +21,17 @@ use crate::core::manifest::ManifestMetadata;
 use crate::core::resolver::CliFeatures;
 use crate::core::Dependency;
 use crate::core::Package;
-use crate::core::QueryKind;
+use crate::core::PackageIdSpecQuery;
 use crate::core::SourceId;
 use crate::core::Workspace;
 use crate::ops;
 use crate::ops::PackageOpts;
 use crate::ops::Packages;
+use crate::sources::source::QueryKind;
 use crate::sources::SourceConfigMap;
 use crate::sources::CRATES_IO_REGISTRY;
 use crate::util::auth;
+use crate::util::cache_lock::CacheLockMode;
 use crate::util::config::JobsConfig;
 use crate::util::Progress;
 use crate::util::ProgressStyle;
@@ -37,11 +39,12 @@ use crate::CargoResult;
 use crate::Config;
 
 use super::super::check_dep_has_version;
+use super::RegistryOrIndex;
 
 pub struct PublishOpts<'cfg> {
     pub config: &'cfg Config,
     pub token: Option<Secret<String>>,
-    pub index: Option<String>,
+    pub reg_or_index: Option<RegistryOrIndex>,
     pub verify: bool,
     pub allow_dirty: bool,
     pub jobs: Option<JobsConfig>,
@@ -49,7 +52,6 @@ pub struct PublishOpts<'cfg> {
     pub to_publish: ops::Packages,
     pub targets: Vec<String>,
     pub dry_run: bool,
-    pub registry: Option<String>,
     pub cli_features: CliFeatures,
 }
 
@@ -76,7 +78,10 @@ pub fn publish(ws: &Workspace<'_>, opts: &PublishOpts<'_>) -> CargoResult<()> {
 
     let (pkg, cli_features) = pkgs.pop().unwrap();
 
-    let mut publish_registry = opts.registry.clone();
+    let mut publish_registry = match opts.reg_or_index.as_ref() {
+        Some(RegistryOrIndex::Registry(registry)) => Some(registry.clone()),
+        _ => None,
+    };
     if let Some(ref allowed_registries) = *pkg.publish() {
         if publish_registry.is_none() && allowed_registries.len() == 1 {
             // If there is only one allowed registry, push to that one directly,
@@ -99,7 +104,7 @@ pub fn publish(ws: &Workspace<'_>, opts: &PublishOpts<'_>) -> CargoResult<()> {
         if allowed_registries.is_empty() {
             bail!(
                 "`{}` cannot be published.\n\
-                 `package.publish` is set to `false` or an empty list in Cargo.toml and prevents publishing.",
+                 `package.publish` must be set to `true` or a non-empty list in Cargo.toml to publish.",
                 pkg.name(),
             );
         } else if !allowed_registries.contains(&reg_name) {
@@ -116,11 +121,16 @@ pub fn publish(ws: &Workspace<'_>, opts: &PublishOpts<'_>) -> CargoResult<()> {
     let ver = pkg.version().to_string();
     let operation = Operation::Read;
 
+    let reg_or_index = match opts.reg_or_index.clone() {
+        Some(RegistryOrIndex::Registry(_)) | None => {
+            publish_registry.map(RegistryOrIndex::Registry)
+        }
+        val => val,
+    };
     let (mut registry, reg_ids) = super::registry(
         opts.config,
         opts.token.as_ref().map(Secret::as_deref),
-        opts.index.as_deref(),
-        publish_registry.as_deref(),
+        reg_or_index.as_ref(),
         true,
         Some(operation).filter(|_| !opts.dry_run),
     )?;
@@ -161,6 +171,7 @@ pub fn publish(ws: &Workspace<'_>, opts: &PublishOpts<'_>) -> CargoResult<()> {
             None,
             operation,
             vec![],
+            false,
         )?));
     }
 
@@ -224,7 +235,7 @@ fn wait_for_publish(
     progress.tick_now(0, max, "")?;
     let is_available = loop {
         {
-            let _lock = config.acquire_package_cache_lock()?;
+            let _lock = config.acquire_package_cache_lock(CacheLockMode::DownloadExclusive)?;
             // Force re-fetching the source
             //
             // As pulling from a git source is expensive, we track when we've done it within the
@@ -353,6 +364,17 @@ fn transmit(
                 .to_string(),
                 registry: dep_registry,
                 explicit_name_in_toml: dep.explicit_name_in_toml().map(|s| s.to_string()),
+                artifact: dep.artifact().map(|artifact| {
+                    artifact
+                        .kinds()
+                        .iter()
+                        .map(|x| x.as_str().into_owned())
+                        .collect()
+                }),
+                bindep_target: dep.artifact().and_then(|artifact| {
+                    artifact.target().map(|target| target.as_str().to_owned())
+                }),
+                lib: dep.artifact().map_or(false, |artifact| artifact.is_lib()),
             })
         })
         .collect::<CargoResult<Vec<NewCrateDependency>>>()?;
@@ -372,6 +394,7 @@ fn transmit(
         ref links,
         ref rust_version,
     } = *manifest.metadata();
+    let rust_version = rust_version.as_ref().map(ToString::to_string);
     let readme_content = readme
         .as_ref()
         .map(|readme| {
@@ -424,7 +447,7 @@ fn transmit(
                 license_file: license_file.clone(),
                 badges: badges.clone(),
                 links: links.clone(),
-                rust_version: rust_version.clone(),
+                rust_version,
             },
             tarball,
         )

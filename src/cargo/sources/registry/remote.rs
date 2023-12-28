@@ -1,24 +1,27 @@
 //! Access to a Git index based registry. See [`RemoteRegistry`] for details.
 
+use crate::core::global_cache_tracker;
 use crate::core::{GitReference, PackageId, SourceId};
 use crate::sources::git;
 use crate::sources::git::fetch::RemoteKind;
+use crate::sources::git::resolve_ref;
 use crate::sources::registry::download;
 use crate::sources::registry::MaybeLock;
 use crate::sources::registry::{LoadResponse, RegistryConfig, RegistryData};
+use crate::util::cache_lock::CacheLockMode;
 use crate::util::errors::CargoResult;
 use crate::util::interning::InternedString;
 use crate::util::{Config, Filesystem};
 use anyhow::Context as _;
 use cargo_util::paths;
 use lazycell::LazyCell;
-use log::{debug, trace};
 use std::cell::{Cell, Ref, RefCell};
 use std::fs::File;
 use std::mem;
 use std::path::Path;
 use std::str;
 use std::task::{ready, Poll};
+use tracing::{debug, trace};
 
 /// A remote registry is a registry that lives at a remote URL (such as
 /// crates.io). The git index is cloned locally, and `.crate` files are
@@ -46,6 +49,9 @@ use std::task::{ready, Poll};
 ///
 /// [`HttpRegistry`]: super::http_remote::HttpRegistry
 pub struct RemoteRegistry<'cfg> {
+    /// The name of this source, a unique string (across all sources) used as
+    /// the directory name where its cached content is stored.
+    name: InternedString,
     /// Path to the registry index (`$CARGO_HOME/registry/index/$REG-HASH`).
     index_path: Filesystem,
     /// Path to the cache of `.crate` files (`$CARGO_HOME/registry/cache/$REG-HASH`).
@@ -59,7 +65,7 @@ pub struct RemoteRegistry<'cfg> {
     /// A Git [tree object] to help this registry find crate metadata from the
     /// underlying Git repository.
     ///
-    /// This is stored here to prevent Git from repeatly creating a tree object
+    /// This is stored here to prevent Git from repeatedly creating a tree object
     /// during each call into `load()`.
     ///
     /// [tree object]: https://git-scm.com/book/en/v2/Git-Internals-Git-Objects#_tree_objects
@@ -70,7 +76,7 @@ pub struct RemoteRegistry<'cfg> {
     head: Cell<Option<git2::Oid>>,
     /// This stores sha value of the current HEAD commit for convenience.
     current_sha: Cell<Option<InternedString>>,
-    /// Whether this registry needs to update package informations.
+    /// Whether this registry needs to update package information.
     ///
     /// See [`RemoteRegistry::mark_updated`] on how to make sure a registry
     /// index is updated only once per session.
@@ -86,6 +92,7 @@ impl<'cfg> RemoteRegistry<'cfg> {
     ///   registry index are stored. Expect to be unique.
     pub fn new(source_id: SourceId, config: &'cfg Config, name: &str) -> RemoteRegistry<'cfg> {
         RemoteRegistry {
+            name: name.into(),
             index_path: config.registry_index_path().join(name),
             cache_path: config.registry_cache_path().join(name),
             source_id,
@@ -104,7 +111,9 @@ impl<'cfg> RemoteRegistry<'cfg> {
     fn repo(&self) -> CargoResult<&git2::Repository> {
         self.repo.try_borrow_with(|| {
             trace!("acquiring registry index lock");
-            let path = self.config.assert_package_cache_locked(&self.index_path);
+            let path = self
+                .config
+                .assert_package_cache_locked(CacheLockMode::DownloadExclusive, &self.index_path);
 
             match git2::Repository::open(&path) {
                 Ok(repo) => Ok(repo),
@@ -141,7 +150,7 @@ impl<'cfg> RemoteRegistry<'cfg> {
     fn head(&self) -> CargoResult<git2::Oid> {
         if self.head.get().is_none() {
             let repo = self.repo()?;
-            let oid = self.index_git_ref.resolve(repo)?;
+            let oid = resolve_ref(&self.index_git_ref, repo)?;
             self.head.set(Some(oid));
         }
         Ok(self.head.get().unwrap())
@@ -208,6 +217,11 @@ impl<'cfg> RemoteRegistry<'cfg> {
 impl<'cfg> RegistryData for RemoteRegistry<'cfg> {
     fn prepare(&self) -> CargoResult<()> {
         self.repo()?;
+        self.config
+            .deferred_global_last_use()?
+            .mark_registry_index_used(global_cache_tracker::RegistryIndex {
+                encoded_registry_name: self.name,
+            });
         Ok(())
     }
 
@@ -216,7 +230,8 @@ impl<'cfg> RegistryData for RemoteRegistry<'cfg> {
     }
 
     fn assert_index_locked<'a>(&self, path: &'a Filesystem) -> &'a Path {
-        self.config.assert_package_cache_locked(path)
+        self.config
+            .assert_package_cache_locked(CacheLockMode::DownloadExclusive, path)
     }
 
     /// Read the general concept for `load()` on [`RegistryData::load`].
@@ -269,9 +284,8 @@ impl<'cfg> RegistryData for RemoteRegistry<'cfg> {
             }
 
             let object = entry.to_object(repo)?;
-            let blob = match object.as_blob() {
-                Some(blob) => blob,
-                None => anyhow::bail!("path `{}` is not a blob in the git repo", path.display()),
+            let Some(blob) = object.as_blob() else {
+                anyhow::bail!("path `{}` is not a blob in the git repo", path.display())
             };
 
             Ok(LoadResponse::Data {
@@ -303,14 +317,12 @@ impl<'cfg> RegistryData for RemoteRegistry<'cfg> {
     fn config(&mut self) -> Poll<CargoResult<Option<RegistryConfig>>> {
         debug!("loading config");
         self.prepare()?;
-        self.config.assert_package_cache_locked(&self.index_path);
+        self.config
+            .assert_package_cache_locked(CacheLockMode::DownloadExclusive, &self.index_path);
         match ready!(self.load(Path::new(""), Path::new(RegistryConfig::NAME), None)?) {
             LoadResponse::Data { raw_data, .. } => {
                 trace!("config loaded");
-                let mut cfg: RegistryConfig = serde_json::from_slice(&raw_data)?;
-                if !self.config.cli_unstable().registry_auth {
-                    cfg.auth_required = false;
-                }
+                let cfg: RegistryConfig = serde_json::from_slice(&raw_data)?;
                 Poll::Ready(Ok(Some(cfg)))
             }
             _ => Poll::Ready(Ok(None)),
@@ -350,7 +362,9 @@ impl<'cfg> RegistryData for RemoteRegistry<'cfg> {
         self.head.set(None);
         *self.tree.borrow_mut() = None;
         self.current_sha.set(None);
-        let _path = self.config.assert_package_cache_locked(&self.index_path);
+        let _path = self
+            .config
+            .assert_package_cache_locked(CacheLockMode::DownloadExclusive, &self.index_path);
         if !self.quiet {
             self.config
                 .shell()
@@ -400,6 +414,7 @@ impl<'cfg> RegistryData for RemoteRegistry<'cfg> {
         download::download(
             &self.cache_path,
             &self.config,
+            self.name,
             pkg,
             checksum,
             registry_config,
@@ -412,7 +427,14 @@ impl<'cfg> RegistryData for RemoteRegistry<'cfg> {
         checksum: &str,
         data: &[u8],
     ) -> CargoResult<File> {
-        download::finish_download(&self.cache_path, &self.config, pkg, checksum, data)
+        download::finish_download(
+            &self.cache_path,
+            &self.config,
+            self.name.clone(),
+            pkg,
+            checksum,
+            data,
+        )
     }
 
     fn is_crate_downloaded(&self, pkg: PackageId) -> bool {

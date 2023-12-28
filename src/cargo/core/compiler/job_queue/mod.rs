@@ -3,7 +3,7 @@
 //! ## Overview
 //!
 //! This module implements a job queue. A job here represents a unit of work,
-//! which is roughly a rusc invocation, a build script run, or just a no-op.
+//! which is roughly a rustc invocation, a build script run, or just a no-op.
 //! The job queue primarily handles the following things:
 //!
 //! * Spawns concurrent jobs. Depending on its [`Freshness`], a job could be
@@ -125,8 +125,8 @@ use std::time::Duration;
 use anyhow::{format_err, Context as _};
 use cargo_util::ProcessBuilder;
 use jobserver::{Acquired, HelperThread};
-use log::{debug, trace};
 use semver::Version;
+use tracing::{debug, trace};
 
 pub use self::job::Freshness::{self, Dirty, Fresh};
 pub use self::job::{Job, Work};
@@ -840,7 +840,7 @@ impl<'cfg> DrainState<'cfg> {
             }
             err_state.count += 1;
         } else {
-            log::warn!("{:?}", new_err.error);
+            tracing::warn!("{:?}", new_err.error);
         }
     }
 
@@ -941,9 +941,8 @@ impl<'cfg> DrainState<'cfg> {
         cx: &mut Context<'_, '_>,
     ) -> CargoResult<()> {
         let outputs = cx.build_script_outputs.lock().unwrap();
-        let metadata = match cx.find_build_script_metadata(unit) {
-            Some(metadata) => metadata,
-            None => return Ok(()),
+        let Some(metadata) = cx.find_build_script_metadata(unit) else {
+            return Ok(());
         };
         let bcx = &mut cx.bcx;
         if let Some(output) = outputs.get(metadata) {
@@ -953,7 +952,10 @@ impl<'cfg> DrainState<'cfg> {
                 }
 
                 for warning in output.warnings.iter() {
-                    bcx.config.shell().warn(warning)?;
+                    let warning_with_package =
+                        format!("{}@{}: {}", unit.pkg.name(), unit.pkg.version(), warning);
+
+                    bcx.config.shell().warn(warning_with_package)?;
                 }
 
                 if msg.is_some() {

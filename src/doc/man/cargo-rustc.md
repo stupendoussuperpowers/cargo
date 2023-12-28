@@ -1,6 +1,7 @@
 # cargo-rustc(1)
-{{*set actionverb="Build"}}
-{{*set multitarget=true}}
+{{~*set command="rustc"}}
+{{~*set actionverb="Build"}}
+{{~*set multitarget=true}}
 
 ## NAME
 
@@ -23,6 +24,7 @@ See <https://doc.rust-lang.org/rustc/index.html> for documentation on rustc
 flags.
 
 {{> description-one-target }}
+
 To pass flags to all compiler processes spawned by Cargo, use the `RUSTFLAGS`
 [environment variable](../reference/environment-variables.html) or the
 `build.rustflags` [config value](../reference/config.html).
@@ -64,7 +66,7 @@ The `rustc` subcommand will treat the following named profiles with special beha
 * `bench` --- Builds in the same was as the {{man "cargo-bench" 1}} command,
   similar to the `test` profile.
 
-See the [the reference](../reference/profiles.html) for more details on profiles.
+See [the reference](../reference/profiles.html) for more details on profiles.
 {{/option}}
 
 {{> options-ignore-rust-version }}

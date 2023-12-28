@@ -95,7 +95,7 @@ fn simple_git() {
 
     let fp = paths::root().join("foo/.gitignore");
     let contents = fs::read_to_string(&fp).unwrap();
-    assert_eq!(contents, "/target\n/Cargo.lock\n",);
+    assert_eq!(contents, "/target\n",);
 
     cargo_process("build").cwd(&paths::root().join("foo")).run();
 }
@@ -112,7 +112,7 @@ fn simple_hg() {
 
     let fp = paths::root().join("foo/.hgignore");
     let contents = fs::read_to_string(&fp).unwrap();
-    assert_eq!(contents, "^target$\n^Cargo.lock$\n",);
+    assert_eq!(contents, "^target$\n",);
 
     cargo_process("build").cwd(&paths::root().join("foo")).run();
 }
@@ -124,7 +124,7 @@ fn no_argument() {
         .with_stderr_contains(
             "\
 error: the following required arguments were not provided:
-  <path>
+  <PATH>
 ",
         )
         .run();
@@ -348,8 +348,7 @@ fn explicit_invalid_name_not_suggested() {
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] the name `10-invalid` cannot be used as a package name, \
-the name cannot start with a digit\n\
+[ERROR] invalid character `1` in package name: `10-invalid`, the name cannot start with a digit
 If you need a binary with the name \"10-invalid\", use a valid package name, \
 and set the binary name to be different from the package. \
 This can be done by setting the binary filename to `src/bin/10-invalid.rs` \
@@ -451,6 +450,7 @@ fn non_ascii_name() {
             "\
 [WARNING] the name `Привет` contains non-ASCII characters
 Non-ASCII crate names are not supported by Rust.
+[WARNING] the name `Привет` is not snake_case or kebab-case which is recommended for package names, consider `привет`
 [CREATED] binary (application) `Привет` package
 ",
         )
@@ -496,6 +496,29 @@ or change the name in Cargo.toml with:
     name = \"a¼\"
     path = \"src/main.rs\"
 
+",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn non_snake_case_name() {
+    cargo_process("new UPPERcase_name")
+        .with_stderr(
+            "\
+[WARNING] the name `UPPERcase_name` is not snake_case or kebab-case which is recommended for package names, consider `uppercase_name`
+[CREATED] binary (application) `UPPERcase_name` package
+",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn kebab_case_name_is_accepted() {
+    cargo_process("new kebab-case-is-valid")
+        .with_stderr(
+            "\
+[CREATED] binary (application) `kebab-case-is-valid` package
 ",
         )
         .run();

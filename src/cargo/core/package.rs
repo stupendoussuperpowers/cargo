@@ -10,27 +10,29 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use bytesize::ByteSize;
+use cargo_util_schemas::manifest::RustVersion;
 use curl::easy::Easy;
 use curl::multi::{EasyHandle, Multi};
 use lazycell::LazyCell;
-use log::debug;
 use semver::Version;
 use serde::Serialize;
+use tracing::debug;
 
 use crate::core::compiler::{CompileKind, RustcTargetData};
 use crate::core::dependency::DepKind;
 use crate::core::resolver::features::ForceAllTargets;
 use crate::core::resolver::{HasDevUnits, Resolve};
-use crate::core::source::MaybePackage;
 use crate::core::{Dependency, Manifest, PackageId, SourceId, Target};
-use crate::core::{SourceMap, Summary, Workspace};
-use crate::util::config::PackageCacheLock;
+use crate::core::{Summary, Workspace};
+use crate::sources::source::{MaybePackage, SourceMap};
+use crate::util::cache_lock::{CacheLock, CacheLockMode};
 use crate::util::errors::{CargoResult, HttpNotSuccessful};
 use crate::util::interning::InternedString;
 use crate::util::network::http::http_handle_and_timeout;
 use crate::util::network::http::HttpTimeout;
 use crate::util::network::retry::{Retry, RetryResult};
 use crate::util::network::sleep::SleepTracker;
+use crate::util::toml::prepare_for_publish;
 use crate::util::{self, internal, Config, Progress, ProgressStyle};
 
 pub const MANIFEST_PREAMBLE: &str = "\
@@ -103,7 +105,7 @@ pub struct SerializedPackage {
     #[serde(skip_serializing_if = "Option::is_none")]
     metabuild: Option<Vec<String>>,
     default_run: Option<String>,
-    rust_version: Option<String>,
+    rust_version: Option<RustVersion>,
 }
 
 impl Package {
@@ -177,7 +179,7 @@ impl Package {
         self.targets().iter().any(|target| target.proc_macro())
     }
     /// Gets the package's minimum Rust version.
-    pub fn rust_version(&self) -> Option<&str> {
+    pub fn rust_version(&self) -> Option<&RustVersion> {
         self.manifest().rust_version()
     }
 
@@ -196,10 +198,7 @@ impl Package {
     }
 
     pub fn to_registry_toml(&self, ws: &Workspace<'_>) -> CargoResult<String> {
-        let manifest = self
-            .manifest()
-            .original()
-            .prepare_for_publish(ws, self.root())?;
+        let manifest = prepare_for_publish(self.manifest().original(), ws, self.root())?;
         let toml = toml::to_string_pretty(&manifest)?;
         Ok(format!("{}\n{}", MANIFEST_PREAMBLE, toml))
     }
@@ -262,7 +261,7 @@ impl Package {
             metabuild: self.manifest().metabuild().cloned(),
             publish: self.publish().as_ref().cloned(),
             default_run: self.manifest().default_run().map(|s| s.to_owned()),
-            rust_version: self.rust_version().map(|s| s.to_owned()),
+            rust_version: self.rust_version().cloned(),
         }
     }
 }
@@ -337,7 +336,7 @@ pub struct Downloads<'a, 'cfg> {
     /// Total bytes for all successfully downloaded packages.
     downloaded_bytes: u64,
     /// Size (in bytes) and package name of the largest downloaded package.
-    largest: (u64, String),
+    largest: (u64, InternedString),
     /// Time when downloading started.
     start: Instant,
     /// Indicates *all* downloads were successful.
@@ -366,7 +365,7 @@ pub struct Downloads<'a, 'cfg> {
     next_speed_check_bytes_threshold: Cell<u64>,
     /// Global filesystem lock to ensure only one Cargo is downloading at a
     /// time.
-    _lock: PackageCacheLock<'cfg>,
+    _lock: CacheLock<'cfg>,
 }
 
 struct Download<'cfg> {
@@ -458,13 +457,15 @@ impl<'cfg> PackageSet<'cfg> {
             ))),
             downloads_finished: 0,
             downloaded_bytes: 0,
-            largest: (0, String::new()),
+            largest: (0, InternedString::new("")),
             success: false,
             updated_at: Cell::new(Instant::now()),
             timeout,
             next_speed_check: Cell::new(Instant::now()),
             next_speed_check_bytes_threshold: Cell::new(0),
-            _lock: self.config.acquire_package_cache_lock()?,
+            _lock: self
+                .config
+                .acquire_package_cache_lock(CacheLockMode::DownloadExclusive)?,
         })
     }
 
@@ -477,6 +478,9 @@ impl<'cfg> PackageSet<'cfg> {
 
     pub fn get_many(&self, ids: impl IntoIterator<Item = PackageId>) -> CargoResult<Vec<&Package>> {
         let mut pkgs = Vec::new();
+        let _lock = self
+            .config
+            .acquire_package_cache_lock(CacheLockMode::DownloadExclusive)?;
         let mut downloads = self.enable_download()?;
         for id in ids {
             pkgs.extend(downloads.start(id)?);
@@ -485,6 +489,10 @@ impl<'cfg> PackageSet<'cfg> {
             pkgs.push(downloads.wait()?);
         }
         downloads.success = true;
+        drop(downloads);
+
+        let mut deferred = self.config.deferred_global_last_use()?;
+        deferred.save_no_error(self.config);
         Ok(pkgs)
     }
 
@@ -711,7 +719,7 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
         // happen during `wait_for_download`
         let token = self.next;
         self.next += 1;
-        debug!("downloading {} as {}", id, token);
+        debug!(target: "network", "downloading {} as {}", id, token);
         assert!(self.pending_ids.insert(id));
 
         let (mut handle, _timeout) = http_handle_and_timeout(self.set.config)?;
@@ -730,7 +738,7 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
         crate::try_old_curl_http2_pipewait!(self.set.multiplexing, handle);
 
         handle.write_function(move |buf| {
-            debug!("{} - {} bytes of data", token, buf.len());
+            debug!(target: "network", "{} - {} bytes of data", token, buf.len());
             tls::with(|downloads| {
                 if let Some(downloads) = downloads {
                     downloads.pending[&token]
@@ -811,7 +819,7 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
         let (dl, data) = loop {
             assert_eq!(self.pending.len(), self.pending_ids.len());
             let (token, result) = self.wait_for_curl()?;
-            debug!("{} finished with {:?}", token, result);
+            debug!(target: "network", "{} finished with {:?}", token, result);
 
             let (mut dl, handle) = self
                 .pending
@@ -872,7 +880,7 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
                     return Err(e.context(format!("failed to download from `{}`", dl.url)))
                 }
                 RetryResult::Retry(sleep) => {
-                    debug!("download retry {} for {sleep}ms", dl.url);
+                    debug!(target: "network", "download retry {} for {sleep}ms", dl.url);
                     self.sleeping.push(sleep, (dl, handle));
                 }
             }
@@ -890,7 +898,7 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
         self.downloads_finished += 1;
         self.downloaded_bytes += dl.total.get();
         if dl.total.get() > self.largest.0 {
-            self.largest = (dl.total.get(), dl.id.name().to_string());
+            self.largest = (dl.total.get(), dl.id.name());
         }
 
         // We're about to synchronously extract the crate below. While we're
@@ -968,7 +976,7 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
                     .perform()
                     .with_context(|| "failed to perform http requests")
             })?;
-            debug!("handles remaining: {}", n);
+            debug!(target: "network", "handles remaining: {}", n);
             let results = &mut self.results;
             let pending = &self.pending;
             self.set.multi.messages(|msg| {
@@ -977,7 +985,7 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
                 if let Some(result) = msg.result_for(handle) {
                     results.push((token, result));
                 } else {
-                    debug!("message without a result (?)");
+                    debug!(target: "network", "message without a result (?)");
                 }
             });
 
@@ -987,7 +995,7 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
             assert_ne!(self.remaining(), 0);
             if self.pending.is_empty() {
                 let delay = self.sleeping.time_to_next().unwrap();
-                debug!("sleeping main thread for {delay:?}");
+                debug!(target: "network", "sleeping main thread for {delay:?}");
                 std::thread::sleep(delay);
             } else {
                 let min_timeout = Duration::new(1, 0);

@@ -10,9 +10,15 @@ cargo-logout --- Remove an API token from the registry locally
 
 ## DESCRIPTION
 
-This command will remove the API token from the local credential storage.
-Credentials are stored in `$CARGO_HOME/credentials.toml` where `$CARGO_HOME`
-defaults to `.cargo` in your home directory.
+This command will run a credential provider to remove a saved token.
+
+For the default `cargo:token` credential provider, credentials are stored
+in `$CARGO_HOME/credentials.toml` where `$CARGO_HOME` defaults to `.cargo`
+in your home directory.
+
+If a registry has a credential-provider specified, it will be used. Otherwise,
+the providers from the config value `registry.global-credential-providers` will
+be attempted, starting from the end of the list.
 
 If `--registry` is not specified, then the credentials for the default
 registry will be removed (configured by
@@ -33,7 +39,6 @@ visit the registry website and follow its instructions (see
 files</a>. If not specified, the default registry is used,
 which is defined by the <code>registry.default</code> config key which defaults to
 <code>crates-io</code>.</dd>
-
 
 </dl>
 
@@ -65,7 +70,6 @@ terminal.</li>
 </ul>
 <p>May also be specified with the <code>term.color</code>
 <a href="../reference/config.html">config value</a>.</dd>
-
 
 </dl>
 
@@ -109,18 +113,15 @@ requires the <code>-Z unstable-options</code> flag to enable (see
 
 </dl>
 
-
 ## ENVIRONMENT
 
 See [the reference](../reference/environment-variables.html) for
 details on environment variables that Cargo reads.
 
-
 ## EXIT STATUS
 
 * `0`: Cargo succeeded.
 * `101`: Cargo failed to complete.
-
 
 ## EXAMPLES
 

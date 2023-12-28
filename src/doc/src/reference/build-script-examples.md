@@ -1,4 +1,4 @@
-## Build Script Examples
+# Build Script Examples
 
 The following sections illustrate some examples of writing build scripts.
 
@@ -22,7 +22,7 @@ available. The following is a sample of some popular crates[^†]:
 [^†]: This list is not an endorsement. Evaluate your dependencies to see which
 is right for your project.
 
-### Code generation
+## Code generation
 
 Some Cargo packages need to have code generated just before they are compiled
 for various reasons. Here we’ll walk through a simple example which generates a
@@ -71,7 +71,7 @@ fn main() {
         }
         "
     ).unwrap();
-    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo::rerun-if-changed=build.rs");
 }
 ```
 
@@ -87,7 +87,7 @@ There’s a couple of points of note here:
   sources in `.cargo/registry` should be immutable. `cargo` won't allow such
   scripts when packaging.
 * This script is relatively simple as it just writes out a small generated file.
-  One could imagine that other more fanciful operations could take place such as
+  One could imagine that other more complex operations could take place such as
   generating a Rust module from a C header file or another language definition,
   for example.
 * The [`rerun-if-changed` instruction](build-scripts.md#rerun-if-changed)
@@ -120,7 +120,7 @@ from the build script itself.
 [concat-macro]: ../../std/macro.concat.html
 [env-macro]: ../../std/macro.env.html
 
-### Building a native library
+## Building a native library
 
 Sometimes it’s necessary to build some native C or C++ code as part of a
 package. This is another excellent use case of leveraging the build script to
@@ -173,9 +173,9 @@ fn main() {
                       .current_dir(&Path::new(&out_dir))
                       .status().unwrap();
 
-    println!("cargo:rustc-link-search=native={}", out_dir);
-    println!("cargo:rustc-link-lib=static=hello");
-    println!("cargo:rerun-if-changed=src/hello.c");
+    println!("cargo::rustc-link-search=native={}", out_dir);
+    println!("cargo::rustc-link-lib=static=hello");
+    println!("cargo::rerun-if-changed=src/hello.c");
 }
 ```
 
@@ -214,7 +214,7 @@ fn main() {
     cc::Build::new()
         .file("src/hello.c")
         .compile("hello");
-    println!("cargo:rerun-if-changed=src/hello.c");
+    println!("cargo::rerun-if-changed=src/hello.c");
 }
 ```
 
@@ -268,7 +268,7 @@ dependency purely for the build process and not for the crate itself at runtime.
 
 [`cc` crate]: https://crates.io/crates/cc
 
-### Linking to system libraries
+## Linking to system libraries
 
 This example demonstrates how to link a system library and how the build
 script is used to support this use case.
@@ -316,7 +316,7 @@ The build script is fairly simple:
 
 fn main() {
     pkg_config::Config::new().probe("zlib").unwrap();
-    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo::rerun-if-changed=build.rs");
 }
 ```
 
@@ -344,9 +344,9 @@ Run `cargo build -vv` to see the output from the build script. On a system
 with `libz` already installed, it may look something like this:
 
 ```text
-[libz-sys 0.1.0] cargo:rustc-link-search=native=/usr/lib
-[libz-sys 0.1.0] cargo:rustc-link-lib=z
-[libz-sys 0.1.0] cargo:rerun-if-changed=build.rs
+[libz-sys 0.1.0] cargo::rustc-link-search=native=/usr/lib
+[libz-sys 0.1.0] cargo::rustc-link-lib=z
+[libz-sys 0.1.0] cargo::rerun-if-changed=build.rs
 ```
 
 Nice! `pkg-config` did all the work of finding the library and telling Cargo
@@ -363,7 +363,7 @@ source][libz-source] for a more complete example.
 [`pkg-config` crate]: https://crates.io/crates/pkg-config
 [libz-source]: https://github.com/rust-lang/libz-sys
 
-### Using another `sys` crate
+## Using another `sys` crate
 
 When using the `links` key, crates may set metadata that can be read by other
 crates that depend on it. This provides a mechanism to communicate information
@@ -408,7 +408,7 @@ fn main() {
         cfg.include(include);
     }
     cfg.compile("zuser");
-    println!("cargo:rerun-if-changed=src/zuser.c");
+    println!("cargo::rerun-if-changed=src/zuser.c");
 }
 ```
 
@@ -424,7 +424,7 @@ already installed.
 // … rest of code that makes use of zlib.
 ```
 
-### Conditional compilation
+## Conditional compilation
 
 A build script may emit [`rustc-cfg` instructions] which can enable conditions
 that can be checked at compile time. In this example, we'll take a look at how
@@ -440,7 +440,7 @@ script looks something [like
 this](https://github.com/sfackler/rust-openssl/blob/dc72a8e2c429e46c275e528b61a733a66e7877fc/openssl-sys/build/main.rs#L216):
 
 ```rust,ignore
-println!("cargo:version_number={:x}", openssl_version);
+println!("cargo::version_number={:x}", openssl_version);
 ```
 
 This instruction causes the `DEP_OPENSSL_VERSION_NUMBER` environment variable
@@ -460,19 +460,19 @@ if let Ok(version) = env::var("DEP_OPENSSL_VERSION_NUMBER") {
     let version = u64::from_str_radix(&version, 16).unwrap();
 
     if version >= 0x1_00_01_00_0 {
-        println!("cargo:rustc-cfg=ossl101");
+        println!("cargo::rustc-cfg=ossl101");
     }
     if version >= 0x1_00_02_00_0 {
-        println!("cargo:rustc-cfg=ossl102");
+        println!("cargo::rustc-cfg=ossl102");
     }
     if version >= 0x1_01_00_00_0 {
-        println!("cargo:rustc-cfg=ossl110");
+        println!("cargo::rustc-cfg=ossl110");
     }
     if version >= 0x1_01_00_07_0 {
-        println!("cargo:rustc-cfg=ossl110g");
+        println!("cargo::rustc-cfg=ossl110g");
     }
     if version >= 0x1_01_01_00_0 {
-        println!("cargo:rustc-cfg=ossl111");
+        println!("cargo::rustc-cfg=ossl111");
     }
 }
 ```

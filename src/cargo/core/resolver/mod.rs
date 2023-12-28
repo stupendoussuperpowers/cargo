@@ -63,7 +63,7 @@ use std::mem;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use log::{debug, trace};
+use tracing::{debug, trace};
 
 use crate::core::PackageIdSpec;
 use crate::core::{Dependency, PackageId, Registry, Summary};
@@ -120,45 +120,24 @@ mod version_prefs;
 ///
 /// * `config` - a location to print warnings and such, or `None` if no warnings
 ///   should be printed
-///
-/// * `check_public_visible_dependencies` - a flag for whether to enforce the restrictions
-///     introduced in the "public & private dependencies" RFC (1977). The current implementation
-///     makes sure that there is only one version of each name visible to each package.
-///
-///     But there are 2 stable ways to directly depend on different versions of the same name.
-///     1. Use the renamed dependencies functionality
-///     2. Use 'cfg({})' dependencies functionality
-///
-///     When we have a decision for how to implement is without breaking existing functionality
-///     this flag can be removed.
 pub fn resolve(
     summaries: &[(Summary, ResolveOpts)],
     replacements: &[(PackageIdSpec, Dependency)],
     registry: &mut dyn Registry,
     version_prefs: &VersionPreferences,
     config: Option<&Config>,
-    check_public_visible_dependencies: bool,
 ) -> CargoResult<Resolve> {
     let _p = profile::start("resolving");
-    let minimal_versions = match config {
-        Some(config) => config.cli_unstable().minimal_versions,
-        None => false,
+    let first_version = match config {
+        Some(config) if config.cli_unstable().direct_minimal_versions => {
+            Some(VersionOrdering::MinimumVersionsFirst)
+        }
+        _ => None,
     };
-    let direct_minimal_versions = match config {
-        Some(config) => config.cli_unstable().direct_minimal_versions,
-        None => false,
-    };
-    let mut registry =
-        RegistryQueryer::new(registry, replacements, version_prefs, minimal_versions);
+    let mut registry = RegistryQueryer::new(registry, replacements, version_prefs);
     let cx = loop {
-        let cx = Context::new(check_public_visible_dependencies);
-        let cx = activate_deps_loop(
-            cx,
-            &mut registry,
-            summaries,
-            direct_minimal_versions,
-            config,
-        )?;
+        let cx = Context::new();
+        let cx = activate_deps_loop(cx, &mut registry, summaries, first_version, config)?;
         if registry.reset_pending() {
             break cx;
         } else {
@@ -210,7 +189,7 @@ fn activate_deps_loop(
     mut cx: Context,
     registry: &mut RegistryQueryer<'_>,
     summaries: &[(Summary, ResolveOpts)],
-    direct_minimal_versions: bool,
+    first_version: Option<VersionOrdering>,
     config: Option<&Config>,
 ) -> CargoResult<Context> {
     let mut backtrack_stack = Vec::new();
@@ -221,14 +200,14 @@ fn activate_deps_loop(
     let mut past_conflicting_activations = conflict_cache::ConflictCache::new();
 
     // Activate all the initial summaries to kick off some work.
-    for &(ref summary, ref opts) in summaries {
+    for (summary, opts) in summaries {
         debug!("initial activation: {}", summary.package_id());
         let res = activate(
             &mut cx,
             registry,
             None,
             summary.clone(),
-            direct_minimal_versions,
+            first_version,
             opts,
         );
         match res {
@@ -295,12 +274,7 @@ fn activate_deps_loop(
         let mut backtracked = false;
 
         loop {
-            let next = remaining_candidates.next(
-                &mut conflicting_activations,
-                &cx,
-                &dep,
-                parent.package_id(),
-            );
+            let next = remaining_candidates.next(&mut conflicting_activations, &cx);
 
             let (candidate, has_another) = next.ok_or(()).or_else(|_| {
                 // If we get here then our `remaining_candidates` was just
@@ -428,13 +402,13 @@ fn activate_deps_loop(
                 dep.package_name(),
                 candidate.version()
             );
-            let direct_minimal_version = false; // this is an indirect dependency
+            let first_version = None; // this is an indirect dependency
             let res = activate(
                 &mut cx,
                 registry,
                 Some((&parent, &dep)),
                 candidate,
-                direct_minimal_version,
+                first_version,
                 &opts,
             );
 
@@ -501,9 +475,7 @@ fn activate_deps_loop(
                             if let Some((other_parent, conflict)) = remaining_deps
                                 .iter()
                                 // for deps related to us
-                                .filter(|&(_, ref other_dep)| {
-                                    known_related_bad_deps.contains(other_dep)
-                                })
+                                .filter(|(_, other_dep)| known_related_bad_deps.contains(other_dep))
                                 .filter_map(|(other_parent, other_dep)| {
                                     past_conflicting_activations
                                         .find_conflicting(&cx, &other_dep, Some(pid))
@@ -648,7 +620,7 @@ fn activate(
     registry: &mut RegistryQueryer<'_>,
     parent: Option<(&Summary, &Dependency)>,
     candidate: Summary,
-    first_minimal_version: bool,
+    first_version: Option<VersionOrdering>,
     opts: &ResolveOpts,
 ) -> ActivateResult<Option<(DepsFrame, Duration)>> {
     let candidate_pid = candidate.package_id();
@@ -660,15 +632,6 @@ fn activate(
             .link(candidate_pid, parent_pid)
             // and associate dep with that edge
             .insert(dep.clone());
-        if let Some(public_dependency) = cx.public_dependency.as_mut() {
-            public_dependency.add_edge(
-                candidate_pid,
-                parent_pid,
-                dep.is_public(),
-                cx.age,
-                &cx.parents,
-            );
-        }
     }
 
     let activated = cx.flag_activated(&candidate, opts, parent)?;
@@ -705,7 +668,7 @@ fn activate(
         parent.map(|p| p.0.package_id()),
         &candidate,
         opts,
-        first_minimal_version,
+        first_version,
     )?;
 
     // Record what list of features is active for this package.
@@ -783,8 +746,6 @@ impl RemainingCandidates {
         &mut self,
         conflicting_prev_active: &mut ConflictMap,
         cx: &Context,
-        dep: &Dependency,
-        parent: PackageId,
     ) -> Option<(Summary, bool)> {
         for b in self.remaining.by_ref() {
             let b_id = b.package_id();
@@ -816,23 +777,6 @@ impl RemainingCandidates {
                     conflicting_prev_active
                         .entry(a.package_id())
                         .or_insert(ConflictReason::Semver);
-                    continue;
-                }
-            }
-            // We may still have to reject do to a public dependency conflict. If one of any of our
-            // ancestors that can see us already knows about a different crate with this name then
-            // we have to reject this candidate. Additionally this candidate may already have been
-            // activated and have public dependants of its own,
-            // all of witch also need to be checked the same way.
-            if let Some(public_dependency) = cx.public_dependency.as_ref() {
-                if let Err(((c1, c2), c3)) =
-                    public_dependency.can_add_edge(b_id, parent, dep.is_public(), &cx.parents)
-                {
-                    conflicting_prev_active.insert(c1.0, c1.1);
-                    conflicting_prev_active.insert(c2.0, c2.1);
-                    if let Some(c3) = c3 {
-                        conflicting_prev_active.insert(c3.0, c3.1);
-                    }
                     continue;
                 }
             }
@@ -894,14 +838,14 @@ fn generalize_conflicting(
         })
     {
         for critical_parents_dep in critical_parents_deps.iter() {
-            // We only want `first_minimal_version=true` for direct dependencies of workspace
+            // We only want `first_version.is_some()` for direct dependencies of workspace
             // members which isn't the case here as this has a `parent`
-            let first_minimal_version = false;
+            let first_version = None;
             // A dep is equivalent to one of the things it can resolve to.
             // Thus, if all the things it can resolve to have already ben determined
             // to be conflicting, then we can just say that we conflict with the parent.
             if let Some(others) = registry
-                .query(critical_parents_dep, first_minimal_version)
+                .query(critical_parents_dep, first_version)
                 .expect("an already used dep now error!?")
                 .expect("an already used dep now pending!?")
                 .iter()
@@ -1012,15 +956,11 @@ fn find_candidate(
     };
 
     while let Some(mut frame) = backtrack_stack.pop() {
-        let next = frame.remaining_candidates.next(
-            &mut frame.conflicting_activations,
-            &frame.context,
-            &frame.dep,
-            frame.parent.package_id(),
-        );
-        let (candidate, has_another) = match next {
-            Some(pair) => pair,
-            None => continue,
+        let next = frame
+            .remaining_candidates
+            .next(&mut frame.conflicting_activations, &frame.context);
+        let Some((candidate, has_another)) = next else {
+            continue;
         };
 
         // If all members of `conflicting_activations` are still

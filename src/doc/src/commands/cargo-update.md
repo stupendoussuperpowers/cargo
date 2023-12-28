@@ -6,7 +6,7 @@ cargo-update --- Update dependencies as recorded in the local lock file
 
 ## SYNOPSIS
 
-`cargo update` [_options_]
+`cargo update` [_options_] _spec_
 
 ## DESCRIPTION
 
@@ -20,25 +20,24 @@ latest available versions.
 
 <dl>
 
-<dt class="option-term" id="option-cargo-update--p"><a class="option-anchor" href="#option-cargo-update--p"></a><code>-p</code> <em>spec</em>…</dt>
-<dt class="option-term" id="option-cargo-update---package"><a class="option-anchor" href="#option-cargo-update---package"></a><code>--package</code> <em>spec</em>…</dt>
+<dt class="option-term" id="option-cargo-update-spec…"><a class="option-anchor" href="#option-cargo-update-spec…"></a><em>spec</em>…</dt>
 <dd class="option-desc">Update only the specified packages. This flag may be specified
 multiple times. See <a href="cargo-pkgid.html">cargo-pkgid(1)</a> for the SPEC format.</p>
-<p>If packages are specified with the <code>-p</code> flag, then a conservative update of
+<p>If packages are specified with <em>spec</em>, then a conservative update of
 the lockfile will be performed. This means that only the dependency specified
 by SPEC will be updated. Its transitive dependencies will be updated only if
 SPEC cannot be updated without updating dependencies.  All other dependencies
 will remain locked at their currently recorded versions.</p>
-<p>If <code>-p</code> is not specified, all dependencies are updated.</dd>
+<p>If <em>spec</em> is not specified, all dependencies are updated.</dd>
 
 
-<dt class="option-term" id="option-cargo-update---aggressive"><a class="option-anchor" href="#option-cargo-update---aggressive"></a><code>--aggressive</code></dt>
-<dd class="option-desc">When used with <code>-p</code>, dependencies of <em>spec</em> are forced to update as well.
+<dt class="option-term" id="option-cargo-update---recursive"><a class="option-anchor" href="#option-cargo-update---recursive"></a><code>--recursive</code></dt>
+<dd class="option-desc">When used with <em>spec</em>, dependencies of <em>spec</em> are forced to update as well.
 Cannot be used with <code>--precise</code>.</dd>
 
 
 <dt class="option-term" id="option-cargo-update---precise"><a class="option-anchor" href="#option-cargo-update---precise"></a><code>--precise</code> <em>precise</em></dt>
-<dd class="option-desc">When used with <code>-p</code>, allows you to specify a specific version number to set
+<dd class="option-desc">When used with <em>spec</em>, allows you to specify a specific version number to set
 the package to. If the package comes from a git repository, this can be a git
 revision (such as a SHA hash or tag).</dd>
 
@@ -86,7 +85,6 @@ terminal.</li>
 <p>May also be specified with the <code>term.color</code>
 <a href="../reference/config.html">config value</a>.</dd>
 
-
 </dl>
 
 ### Manifest Options
@@ -96,7 +94,6 @@ terminal.</li>
 <dt class="option-term" id="option-cargo-update---manifest-path"><a class="option-anchor" href="#option-cargo-update---manifest-path"></a><code>--manifest-path</code> <em>path</em></dt>
 <dd class="option-desc">Path to the <code>Cargo.toml</code> file. By default, Cargo searches for the
 <code>Cargo.toml</code> file in the current directory or any parent directory.</dd>
-
 
 
 <dt class="option-term" id="option-cargo-update---frozen"><a class="option-anchor" href="#option-cargo-update---frozen"></a><code>--frozen</code></dt>
@@ -121,7 +118,6 @@ if there might be a newer version as indicated in the local copy of the index.
 See the <a href="cargo-fetch.html">cargo-fetch(1)</a> command to download dependencies before going
 offline.</p>
 <p>May also be specified with the <code>net.offline</code> <a href="../reference/config.html">config value</a>.</dd>
-
 
 
 </dl>
@@ -166,18 +162,15 @@ requires the <code>-Z unstable-options</code> flag to enable (see
 
 </dl>
 
-
 ## ENVIRONMENT
 
 See [the reference](../reference/environment-variables.html) for
 details on environment variables that Cargo reads.
 
-
 ## EXIT STATUS
 
 * `0`: Cargo succeeded.
 * `101`: Cargo failed to complete.
-
 
 ## EXAMPLES
 
@@ -187,11 +180,11 @@ details on environment variables that Cargo reads.
 
 2. Update only specific dependencies:
 
-       cargo update -p foo -p bar
+       cargo update foo bar
 
 3. Set a specific dependency to a specific version:
 
-       cargo update -p foo --precise 1.2.3
+       cargo update foo --precise 1.2.3
 
 ## SEE ALSO
 [cargo(1)](cargo.html), [cargo-generate-lockfile(1)](cargo-generate-lockfile.html)

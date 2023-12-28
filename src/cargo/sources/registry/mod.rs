@@ -195,20 +195,23 @@ use std::task::{ready, Poll};
 use anyhow::Context as _;
 use cargo_util::paths::{self, exclude_from_backups_and_indexing};
 use flate2::read::GzDecoder;
-use log::debug;
 use serde::Deserialize;
 use serde::Serialize;
 use tar::Archive;
+use tracing::debug;
 
 use crate::core::dependency::Dependency;
-use crate::core::source::MaybePackage;
-use crate::core::{Package, PackageId, QueryKind, Source, SourceId, Summary};
+use crate::core::global_cache_tracker;
+use crate::core::{Package, PackageId, SourceId};
+use crate::sources::source::MaybePackage;
+use crate::sources::source::QueryKind;
+use crate::sources::source::Source;
 use crate::sources::PathSource;
+use crate::util::cache_lock::CacheLockMode;
 use crate::util::hex;
+use crate::util::interning::InternedString;
 use crate::util::network::PollExt;
-use crate::util::{
-    restricted_names, CargoResult, Config, Filesystem, LimitErrorReader, OptVersionReq,
-};
+use crate::util::{restricted_names, CargoResult, Config, Filesystem, LimitErrorReader};
 
 /// The `.cargo-ok` file is used to track if the source is already unpacked.
 /// See [`RegistrySource::unpack_package`] for more.
@@ -237,6 +240,9 @@ struct LockMetadata {
 ///
 /// For general concepts of registries, see the [module-level documentation](crate::sources::registry).
 pub struct RegistrySource<'cfg> {
+    /// A unique name of the source (typically used as the directory name
+    /// where its cached content is stored).
+    name: InternedString,
     /// The unique identifier of this source.
     source_id: SourceId,
     /// The path where crate files are extracted (`$CARGO_HOME/registry/src/$REG-HASH`).
@@ -251,7 +257,7 @@ pub struct RegistrySource<'cfg> {
     /// yanked.
     ///
     /// This is populated from the entries in `Cargo.lock` to ensure that
-    /// `cargo update -p somepkg` won't unlock yanked entries in `Cargo.lock`.
+    /// `cargo update somepkg` won't unlock yanked entries in `Cargo.lock`.
     /// Otherwise, the resolver would think that those entries no longer
     /// exist, and it would trigger updates to unrelated packages.
     yanked_whitelist: HashSet<PackageId>,
@@ -433,12 +439,18 @@ pub enum MaybeLock {
 mod download;
 mod http_remote;
 mod index;
+pub use index::IndexSummary;
 mod local;
 mod remote;
 
 /// Generates a unique name for [`SourceId`] to have a unique path to put their
 /// index files.
 fn short_name(id: SourceId, is_shallow: bool) -> String {
+    // CAUTION: This should not change between versions. If you change how
+    // this is computed, it will orphan previously cached data, forcing the
+    // cache to be rebuilt and potentially wasting significant disk space. If
+    // you change it, be cautious of the impact. See `test_cratesio_hash` for
+    // a similar discussion.
     let hash = hex::short_hash(&id);
     let ident = id.url().host_str().unwrap_or("").to_string();
     let mut name = format!("{}-{}", ident, hash);
@@ -512,6 +524,7 @@ impl<'cfg> RegistrySource<'cfg> {
         yanked_whitelist: &HashSet<PackageId>,
     ) -> RegistrySource<'cfg> {
         RegistrySource {
+            name: name.into(),
             src_path: config.registry_source_path().join(name),
             config,
             source_id,
@@ -580,18 +593,27 @@ impl<'cfg> RegistrySource<'cfg> {
         let package_dir = format!("{}-{}", pkg.name(), pkg.version());
         let dst = self.src_path.join(&package_dir);
         let path = dst.join(PACKAGE_SOURCE_LOCK);
-        let path = self.config.assert_package_cache_locked(&path);
+        let path = self
+            .config
+            .assert_package_cache_locked(CacheLockMode::DownloadExclusive, &path);
         let unpack_dir = path.parent().unwrap();
         match fs::read_to_string(path) {
             Ok(ok) => match serde_json::from_str::<LockMetadata>(&ok) {
                 Ok(lock_meta) if lock_meta.v == 1 => {
+                    self.config
+                        .deferred_global_last_use()?
+                        .mark_registry_src_used(global_cache_tracker::RegistrySrc {
+                            encoded_registry_name: self.name,
+                            package_dir: package_dir.into(),
+                            size: None,
+                        });
                     return Ok(unpack_dir.to_path_buf());
                 }
                 _ => {
                     if ok == "ok" {
-                        log::debug!("old `ok` content found, clearing cache");
+                        tracing::debug!("old `ok` content found, clearing cache");
                     } else {
-                        log::warn!("unrecognized .cargo-ok content, clearing cache: {ok}");
+                        tracing::warn!("unrecognized .cargo-ok content, clearing cache: {ok}");
                     }
                     // See comment of `unpack_package` about why removing all stuff.
                     paths::remove_dir_all(dst.as_path_unlocked())?;
@@ -609,6 +631,7 @@ impl<'cfg> RegistrySource<'cfg> {
             set_mask(&mut tar);
             tar
         };
+        let mut bytes_written = 0;
         let prefix = unpack_dir.file_name().unwrap();
         let parent = unpack_dir.parent().unwrap();
         for entry in tar.entries()? {
@@ -640,6 +663,7 @@ impl<'cfg> RegistrySource<'cfg> {
                 continue;
             }
             // Unpacking failed
+            bytes_written += entry.size();
             let mut result = entry.unpack_in(parent).map_err(anyhow::Error::from);
             if cfg!(windows) && restricted_names::is_windows_reserved_path(&entry_path) {
                 result = result.with_context(|| {
@@ -666,6 +690,14 @@ impl<'cfg> RegistrySource<'cfg> {
         let lock_meta = LockMetadata { v: 1 };
         write!(ok, "{}", serde_json::to_string(&lock_meta).unwrap())?;
 
+        self.config
+            .deferred_global_last_use()?
+            .mark_registry_src_used(global_cache_tracker::RegistrySrc {
+                encoded_registry_name: self.name,
+                package_dir: package_dir.into(),
+                size: Some(bytes_written),
+            });
+
         Ok(unpack_dir.to_path_buf())
     }
 
@@ -688,19 +720,14 @@ impl<'cfg> RegistrySource<'cfg> {
 
         // After we've loaded the package configure its summary's `checksum`
         // field with the checksum we know for this `PackageId`.
-        let req = OptVersionReq::exact(package.version());
-        let summary_with_cksum = self
+        let cksum = self
             .index
-            .summaries(&package.name(), &req, &mut *self.ops)?
+            .hash(package, &mut *self.ops)
             .expect("a downloaded dep now pending!?")
-            .map(|s| s.summary.clone())
-            .next()
             .expect("summary not found");
-        if let Some(cksum) = summary_with_cksum.checksum() {
-            pkg.manifest_mut()
-                .summary_mut()
-                .set_checksum(cksum.to_string());
-        }
+        pkg.manifest_mut()
+            .summary_mut()
+            .set_checksum(cksum.to_string());
 
         Ok(pkg)
     }
@@ -711,28 +738,35 @@ impl<'cfg> Source for RegistrySource<'cfg> {
         &mut self,
         dep: &Dependency,
         kind: QueryKind,
-        f: &mut dyn FnMut(Summary),
+        f: &mut dyn FnMut(IndexSummary),
     ) -> Poll<CargoResult<()>> {
-        // If this is a precise dependency, then it came from a lock file and in
+        let mut req = dep.version_req().clone();
+
+        // Handle `cargo update --precise` here.
+        if let Some((_, requested)) = self
+            .source_id
+            .precise_registry_version(dep.package_name().as_str())
+            .filter(|(c, _)| req.matches(c))
+        {
+            req.update_precise(&requested);
+        }
+
+        // If this is a locked dependency, then it came from a lock file and in
         // theory the registry is known to contain this version. If, however, we
         // come back with no summaries, then our registry may need to be
         // updated, so we fall back to performing a lazy update.
-        if kind == QueryKind::Exact && dep.source_id().precise().is_some() && !self.ops.is_updated()
-        {
+        if kind == QueryKind::Exact && req.is_locked() && !self.ops.is_updated() {
             debug!("attempting query without update");
             let mut called = false;
-            ready!(self.index.query_inner(
-                &dep.package_name(),
-                dep.version_req(),
-                &mut *self.ops,
-                &self.yanked_whitelist,
-                &mut |s| {
-                    if dep.matches(&s) {
+            ready!(self
+                .index
+                .query_inner(dep.package_name(), &req, &mut *self.ops, &mut |s| {
+                    if dep.matches(s.as_summary()) {
+                        // We are looking for a package from a lock file so we do not care about yank
                         called = true;
                         f(s);
                     }
-                },
-            ))?;
+                },))?;
             if called {
                 Poll::Ready(Ok(()))
             } else {
@@ -742,22 +776,23 @@ impl<'cfg> Source for RegistrySource<'cfg> {
             }
         } else {
             let mut called = false;
-            ready!(self.index.query_inner(
-                &dep.package_name(),
-                dep.version_req(),
-                &mut *self.ops,
-                &self.yanked_whitelist,
-                &mut |s| {
+            ready!(self
+                .index
+                .query_inner(dep.package_name(), &req, &mut *self.ops, &mut |s| {
                     let matched = match kind {
-                        QueryKind::Exact => dep.matches(&s),
+                        QueryKind::Exact => dep.matches(s.as_summary()),
                         QueryKind::Fuzzy => true,
                     };
-                    if matched {
+                    // Next filter out all yanked packages. Some yanked packages may
+                    // leak through if they're in a whitelist (aka if they were
+                    // previously in `Cargo.lock`
+                    if matched
+                        && (!s.is_yanked() || self.yanked_whitelist.contains(&s.package_id()))
+                    {
                         f(s);
                         called = true;
                     }
-                }
-            ))?;
+                }))?;
             if called {
                 return Poll::Ready(Ok(()));
             }
@@ -773,18 +808,13 @@ impl<'cfg> Source for RegistrySource<'cfg> {
                     dep.package_name().replace('-', "_"),
                     dep.package_name().replace('_', "-"),
                 ] {
-                    if name_permutation.as_str() == dep.package_name().as_str() {
+                    let name_permutation = InternedString::new(&name_permutation);
+                    if name_permutation == dep.package_name() {
                         continue;
                     }
                     any_pending |= self
                         .index
-                        .query_inner(
-                            &name_permutation,
-                            dep.version_req(),
-                            &mut *self.ops,
-                            &self.yanked_whitelist,
-                            f,
-                        )?
+                        .query_inner(name_permutation, &req, &mut *self.ops, f)?
                         .is_pending();
                 }
             }
@@ -887,7 +917,7 @@ impl<'cfg> Source for RegistrySource<'cfg> {
 
 impl RegistryConfig {
     /// File name of [`RegistryConfig`].
-    const NAME: &str = "config.json";
+    const NAME: &'static str = "config.json";
 }
 
 /// Get the maximum upack size that Cargo permits

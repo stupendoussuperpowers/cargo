@@ -8,6 +8,7 @@ const BIN: u8 = 1 << 1;
 const TEST: u8 = 1 << 2;
 const BENCH: u8 = 1 << 3;
 const PACKAGE: u8 = 1 << 4;
+const TARGET: u8 = 1 << 5;
 
 fn list_availables_test(command: &str, targets: u8) {
     let full_project = project()
@@ -58,7 +59,7 @@ Available binaries:
             .with_stderr(
                 "\
 error: \"--bench\" takes one argument.
-Available benches:
+Available bench targets:
     bench1
     bench2
 
@@ -74,7 +75,7 @@ Available benches:
             .with_stderr(
                 "\
 error: \"--test\" takes one argument.
-Available tests:
+Available test targets:
     test1
     test2
 
@@ -138,7 +139,7 @@ No binaries available.
             .with_stderr(
                 "\
 error: \"--bench\" takes one argument.
-No benches available.
+No bench targets available.
 
 ",
             )
@@ -152,8 +153,22 @@ No benches available.
             .with_stderr(
                 "\
 error: \"--test\" takes one argument.
-No tests available.
+No test targets available.
 
+",
+            )
+            .with_status(101)
+            .run();
+    }
+
+    if targets & TARGET != 0 {
+        empty_project
+            .cargo(&format!("{} --target", command))
+            .with_stderr(
+                "\
+error: \"--target\" takes a target architecture as an argument.
+
+Run `[..]` to see possible targets.
 ",
             )
             .with_status(101)
@@ -163,52 +178,52 @@ No tests available.
 
 #[cargo_test]
 fn build_list_availables() {
-    list_availables_test("build", EXAMPLE | BIN | TEST | BENCH | PACKAGE);
+    list_availables_test("build", EXAMPLE | BIN | TEST | BENCH | PACKAGE | TARGET);
 }
 
 #[cargo_test]
 fn check_list_availables() {
-    list_availables_test("check", EXAMPLE | BIN | TEST | BENCH | PACKAGE);
+    list_availables_test("check", EXAMPLE | BIN | TEST | BENCH | PACKAGE | TARGET);
 }
 
 #[cargo_test]
 fn doc_list_availables() {
-    list_availables_test("doc", BIN | PACKAGE);
+    list_availables_test("doc", BIN | PACKAGE | TARGET);
 }
 
 #[cargo_test]
 fn fix_list_availables() {
-    list_availables_test("fix", EXAMPLE | BIN | TEST | BENCH | PACKAGE);
+    list_availables_test("fix", EXAMPLE | BIN | TEST | BENCH | PACKAGE | TARGET);
 }
 
 #[cargo_test]
 fn run_list_availables() {
-    list_availables_test("run", EXAMPLE | BIN | PACKAGE);
+    list_availables_test("run", EXAMPLE | BIN | PACKAGE | TARGET);
 }
 
 #[cargo_test]
 fn test_list_availables() {
-    list_availables_test("test", EXAMPLE | BIN | TEST | BENCH | PACKAGE);
+    list_availables_test("test", EXAMPLE | BIN | TEST | BENCH | PACKAGE | TARGET);
 }
 
 #[cargo_test]
 fn bench_list_availables() {
-    list_availables_test("bench", EXAMPLE | BIN | TEST | BENCH | PACKAGE);
+    list_availables_test("bench", EXAMPLE | BIN | TEST | BENCH | PACKAGE | TARGET);
 }
 
 #[cargo_test]
 fn install_list_availables() {
-    list_availables_test("install", EXAMPLE | BIN);
+    list_availables_test("install", EXAMPLE | BIN | TARGET);
 }
 
 #[cargo_test]
 fn rustdoc_list_availables() {
-    list_availables_test("rustdoc", EXAMPLE | BIN | TEST | BENCH | PACKAGE);
+    list_availables_test("rustdoc", EXAMPLE | BIN | TEST | BENCH | PACKAGE | TARGET);
 }
 
 #[cargo_test]
 fn rustc_list_availables() {
-    list_availables_test("rustc", EXAMPLE | BIN | TEST | BENCH | PACKAGE);
+    list_availables_test("rustc", EXAMPLE | BIN | TEST | BENCH | PACKAGE | TARGET);
 }
 
 #[cargo_test]
@@ -218,12 +233,12 @@ fn pkgid_list_availables() {
 
 #[cargo_test]
 fn tree_list_availables() {
-    list_availables_test("tree", PACKAGE);
+    list_availables_test("tree", PACKAGE | TARGET);
 }
 
 #[cargo_test]
 fn clean_list_availables() {
-    list_availables_test("clean", PACKAGE);
+    list_availables_test("clean", PACKAGE | TARGET);
 }
 
 #[cargo_test]

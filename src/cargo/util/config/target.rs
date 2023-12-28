@@ -12,6 +12,7 @@ use std::path::PathBuf;
 pub struct TargetCfgConfig {
     pub runner: OptValue<PathAndArgs>,
     pub rustflags: OptValue<StringList>,
+    pub linker: OptValue<ConfigRelativePath>,
     // This is here just to ignore fields from normal `TargetConfig` because
     // all `[target]` tables are getting deserialized, whether they start with
     // `cfg(` or not.
@@ -45,7 +46,7 @@ pub(super) fn load_target_cfgs(config: &Config) -> CargoResult<Vec<(String, Targ
     // rebuilds. We may perhaps one day wish to ensure a deterministic
     // ordering via the order keys were defined in files perhaps.
     let target: BTreeMap<String, TargetCfgConfig> = config.get("target")?;
-    log::debug!("Got all targets {:#?}", target);
+    tracing::debug!("Got all targets {:#?}", target);
     for (key, cfg) in target {
         if key.starts_with("cfg(") {
             // Unfortunately this is not able to display the location of the
@@ -136,10 +137,6 @@ fn parse_links_overrides(
     config: &Config,
 ) -> CargoResult<BTreeMap<String, BuildOutput>> {
     let mut links_overrides = BTreeMap::new();
-    let extra_check_cfg = match config.cli_unstable().check_cfg {
-        Some((_, _, _, output)) => output,
-        None => false,
-    };
 
     for (lib_name, value) in links {
         // Skip these keys, it shares the namespace with `TargetConfig`.
@@ -206,12 +203,12 @@ fn parse_links_overrides(
                     output.cfgs.extend(list.iter().map(|v| v.0.clone()));
                 }
                 "rustc-check-cfg" => {
-                    if extra_check_cfg {
+                    if config.cli_unstable().check_cfg {
                         let list = value.list(key)?;
                         output.check_cfgs.extend(list.iter().map(|v| v.0.clone()));
                     } else {
                         config.shell().warn(format!(
-                            "target config `{}.{}` requires -Zcheck-cfg=output flag",
+                            "target config `{}.{}` requires -Zcheck-cfg flag",
                             target_key, key
                         ))?;
                     }

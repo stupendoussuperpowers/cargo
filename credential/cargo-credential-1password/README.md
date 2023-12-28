@@ -1,7 +1,32 @@
 # cargo-credential-1password
 
-This is the implementation for the Cargo credential helper for [1password].
-See the [credential-process] documentation for how to use this.
+A Cargo [credential provider] for [1password].
+
+## Usage
+
+`cargo-credential-1password` uses the 1password `op` CLI to store the token. You
+must install the `op` CLI from the [1password
+website](https://1password.com/downloads/command-line/).
+
+Afterward you need to configure `cargo` to use `cargo-credential-1password` as
+the credential provider. You can do this by adding something like the following
+to your [cargo config file][credential provider]:
+
+```toml
+[registry]
+global-credential-providers = ["cargo-credential-1password --account my.1password.com"]
+```
+
+Finally, run `cargo login` to save your registry token in 1password.
+
+## CLI Arguments
+
+`cargo-credential-1password` supports the following command-line arguments:
+
+* `--account`: The account name to use. For a list of available accounts, 
+  run `op account list`.
+* `--vault`: The vault name to use. For a list of available vaults,
+  run `op vault list`.
 
 [1password]: https://1password.com/
-[credential-process]: https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#credential-process
+[credential provider]: https://doc.rust-lang.org/stable/cargo/reference/registry-authentication.html

@@ -5,7 +5,7 @@
 //! rough outline is:
 //!
 //! 1. Resolve the dependency graph (see [`ops::resolve`]).
-//! 2. Download any packages needed (see [`PackageSet`](crate::core::PackageSet)).
+//! 2. Download any packages needed (see [`PackageSet`].
 //! 3. Generate a list of top-level "units" of work for the targets the user
 //!   requested on the command-line. Each [`Unit`] corresponds to a compiler
 //!   invocation. This is done in this module ([`UnitGenerator::generate_root_units`]).
@@ -153,6 +153,7 @@ pub fn compile_ws<'a>(
         unit_graph::emit_serialized_unit_graph(&bcx.roots, &bcx.unit_graph, ws.config())?;
         return Compilation::new(&bcx);
     }
+    crate::core::gc::auto_gc(bcx.config);
     let _p = profile::start("compiling");
     let cx = Context::new(&bcx)?;
     cx.compile(exec)
@@ -184,7 +185,7 @@ pub fn print<'a>(
             process.args(args);
         }
         if let CompileKind::Target(t) = kind {
-            process.arg("--target").arg(t.short_name());
+            process.arg("--target").arg(t.rustc_target());
         }
         process.arg("--print").arg(print_opt_value);
         process.exec()?;
@@ -237,7 +238,7 @@ pub fn create_bcx<'a, 'cfg>(
     }
     config.validate_term_config()?;
 
-    let target_data = RustcTargetData::new(ws, &build_config.requested_kinds)?;
+    let mut target_data = RustcTargetData::new(ws, &build_config.requested_kinds)?;
 
     let specs = spec.to_package_id_specs(ws)?;
     let has_dev_units = {
@@ -261,14 +262,16 @@ pub fn create_bcx<'a, 'cfg>(
             HasDevUnits::No
         }
     };
+    let max_rust_version = ws.rust_version();
     let resolve = ops::resolve_ws_with_opts(
         ws,
-        &target_data,
+        &mut target_data,
         &build_config.requested_kinds,
         cli_features,
         &specs,
         has_dev_units,
         crate::core::resolver::features::ForceAllTargets::No,
+        max_rust_version,
     )?;
     let WorkspaceResolve {
         mut pkg_set,
@@ -279,7 +282,7 @@ pub fn create_bcx<'a, 'cfg>(
 
     let std_resolve_features = if let Some(crates) = &config.cli_unstable().build_std {
         let (std_package_set, std_resolve, std_features) =
-            standard_lib::resolve_std(ws, &target_data, &build_config, crates)?;
+            standard_lib::resolve_std(ws, &mut target_data, &build_config, crates)?;
         pkg_set.add_set(std_package_set);
         Some((std_resolve, std_features))
     } else {
@@ -316,8 +319,8 @@ pub fn create_bcx<'a, 'cfg>(
     }
 
     let (extra_args, extra_args_name) = match (target_rustc_args, target_rustdoc_args) {
-        (&Some(ref args), _) => (Some(args.clone()), "rustc"),
-        (_, &Some(ref args)) => (Some(args.clone()), "rustdoc"),
+        (Some(args), _) => (Some(args.clone()), "rustc"),
+        (_, Some(args)) => (Some(args.clone()), "rustdoc"),
         _ => (None, ""),
     };
 
@@ -487,12 +490,11 @@ pub fn create_bcx<'a, 'cfg>(
         );
 
         for unit in unit_graph.keys() {
-            let version = match unit.pkg.rust_version() {
-                Some(v) => v,
-                None => continue,
+            let Some(version) = unit.pkg.rust_version() else {
+                continue;
             };
 
-            let req = semver::VersionReq::parse(version).unwrap();
+            let req = version.to_caret_req();
             if req.matches(&untagged_version) {
                 continue;
             }
@@ -506,7 +508,7 @@ pub fn create_bcx<'a, 'cfg>(
             } else if !unit.is_local() {
                 format!(
                     "Either upgrade to rustc {} or newer, or use\n\
-                     cargo update -p {}@{} --precise ver\n\
+                     cargo update {}@{} --precise ver\n\
                      where `ver` is the latest version of `{}` supporting rustc {}",
                     version,
                     unit.pkg.name(),
@@ -753,7 +755,7 @@ fn remove_duplicate_doc(
             .into_iter()
             .partition(|unit| cb(unit) && !root_units.contains(unit));
         for unit in to_remove {
-            log::debug!(
+            tracing::debug!(
                 "removing duplicate doc due to {} for package {} target `{}`",
                 reason,
                 unit.pkg,

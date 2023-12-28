@@ -18,12 +18,12 @@ pub fn cli() -> Command {
     clap::Command::new("add")
         .about("Add dependencies to a Cargo.toml manifest file")
         .override_usage(
-            "\
-       cargo add [OPTIONS] <DEP>[@<VERSION>] ...
-       cargo add [OPTIONS] --path <PATH> ...
-       cargo add [OPTIONS] --git <URL> ..."
-        )
-        .after_help("Run `cargo help add` for more detailed information.\n")
+            color_print::cstr!("\
+       <cyan,bold>cargo add</> <cyan>[OPTIONS] <<DEP>>[@<<VERSION>>] ...</>
+       <cyan,bold>cargo add</> <cyan>[OPTIONS]</> <cyan,bold>--path</> <cyan><<PATH>> ...</>
+       <cyan,bold>cargo add</> <cyan>[OPTIONS]</> <cyan,bold>--git</> <cyan><<URL>> ...</>"
+        ))
+        .after_help(color_print::cstr!("Run `<cyan,bold>cargo help add</>` for more detailed information.\n"))
         .group(clap::ArgGroup::new("selected").multiple(true).required(true))
         .args([
             clap::Arg::new("crates")
@@ -62,6 +62,19 @@ The package name will be exposed as feature of your crate.")
 The package will be removed from your features.")
                 .conflicts_with("dev")
                 .overrides_with("optional"),
+            flag("public", "Mark the dependency as public")
+                .conflicts_with("dev")
+                .conflicts_with("build")
+                .long_help("Mark the dependency as public
+
+The dependency can be referenced in your library's public API."),
+            flag("no-public", "Mark the dependency as private")
+                .conflicts_with("dev")
+                .conflicts_with("build")
+                .overrides_with("public")
+                .long_help("Mark the dependency as private
+
+While you can use the crate in your implementation, it cannot be referenced in your public API."),
             clap::Arg::new("rename")
                 .long("rename")
                 .action(ArgAction::Set)
@@ -77,10 +90,10 @@ Example uses:
                 "Ignore `rust-version` specification in packages (unstable)"
             ),
         ])
-        .arg_manifest_path()
+        .arg_manifest_path_without_unsupported_path_tip()
         .arg_package("Package to modify")
-        .arg_quiet()
         .arg_dry_run("Don't actually write the manifest")
+        .arg_silent_suggestion()
         .next_help_heading("Source")
         .args([
             clap::Arg::new("path")
@@ -235,6 +248,7 @@ fn parse_dependencies(config: &Config, matches: &ArgMatches) -> CargoResult<Vec<
     };
     let default_features = default_features(matches);
     let optional = optional(matches);
+    let public = public(matches);
 
     let mut crates = matches
         .get_many::<String>("crates")
@@ -325,6 +339,7 @@ fn parse_dependencies(config: &Config, matches: &ArgMatches) -> CargoResult<Vec<
             features,
             default_features,
             optional,
+            public,
             registry: registry.clone(),
             path: path.map(String::from),
             git: git.map(String::from),
@@ -351,6 +366,10 @@ fn default_features(matches: &ArgMatches) -> Option<bool> {
 
 fn optional(matches: &ArgMatches) -> Option<bool> {
     resolve_bool_arg(matches.flag("optional"), matches.flag("no-optional"))
+}
+
+fn public(matches: &ArgMatches) -> Option<bool> {
+    resolve_bool_arg(matches.flag("public"), matches.flag("no-public"))
 }
 
 fn resolve_bool_arg(yes: bool, no: bool) -> Option<bool> {

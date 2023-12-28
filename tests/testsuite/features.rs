@@ -36,6 +36,41 @@ Caused by:
 }
 
 #[cargo_test]
+fn empty_feature_name() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+                authors = []
+
+                [features]
+                "" = []
+            "#,
+        )
+        .file("src/main.rs", "")
+        .build();
+
+    p.cargo("check")
+        .with_status(101)
+        .with_stderr(
+            "\
+[ERROR] failed to parse manifest at `[..]`
+
+Caused by:
+  TOML parse error at line 8, column 17
+    |
+  8 |                 \"\" = []
+    |                 ^^
+  feature name cannot be empty
+",
+        )
+        .run();
+}
+
+#[cargo_test]
 fn same_name() {
     // Feature with the same name as a dependency.
     let p = project()
@@ -596,7 +631,14 @@ fn cyclic_feature2() {
         .file("src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("check").with_stdout("").run();
+    p.cargo("check")
+        .with_stderr(
+            "\
+[CHECKING] foo [..]
+[FINISHED] [..]
+",
+        )
+        .run();
 }
 
 #[cargo_test]
@@ -1016,8 +1058,8 @@ fn no_rebuild_when_frobbing_default_feature() {
         .build();
 
     p.cargo("check").run();
-    p.cargo("check").with_stdout("").run();
-    p.cargo("check").with_stdout("").run();
+    p.cargo("check").with_stderr("[FINISHED] [..]").run();
+    p.cargo("check").with_stderr("[FINISHED] [..]").run();
 }
 
 #[cargo_test]
@@ -1067,8 +1109,8 @@ fn unions_work_with_no_default_features() {
         .build();
 
     p.cargo("check").run();
-    p.cargo("check").with_stdout("").run();
-    p.cargo("check").with_stdout("").run();
+    p.cargo("check").with_stderr("[FINISHED] [..]").run();
+    p.cargo("check").with_stderr("[FINISHED] [..]").run();
 }
 
 #[cargo_test]
@@ -1141,6 +1183,61 @@ fn activating_feature_activates_dep() {
         .build();
 
     p.cargo("check --features a -v").run();
+}
+
+#[cargo_test]
+fn activating_feature_does_not_activate_transitive_dev_dependency() {
+    let p = project()
+        .no_manifest()
+        .file(
+            "a/Cargo.toml",
+            r#"
+                [package]
+                name = "a"
+                version = "0.0.0"
+                edition = "2021"
+
+                [features]
+                f = ["b/f"]
+
+                [dependencies]
+                b = { path = "../b" }
+            "#,
+        )
+        .file(
+            "b/Cargo.toml",
+            r#"
+                [package]
+                name = "b"
+                version = "0.0.0"
+                edition = "2021"
+
+                [features]
+                f = ["c/f"]
+
+                [dev-dependencies]
+                c = { path = "../c" }
+            "#,
+        )
+        .file(
+            "c/Cargo.toml",
+            r#"
+                [package]
+                name = "c"
+                version = "0.0.0"
+                edition = "2021"
+
+                [features]
+                f = []
+            "#,
+        )
+        .file("a/src/lib.rs", "")
+        .file("b/src/lib.rs", "")
+        .file("c/src/lib.rs", "compile_error!")
+        .build();
+
+    p.cargo("check --manifest-path a/Cargo.toml --features f")
+        .run();
 }
 
 #[cargo_test]
@@ -1962,7 +2059,11 @@ fn invalid_feature_names_error() {
 error: failed to parse manifest at `[ROOT]/foo/Cargo.toml`
 
 Caused by:
-  invalid character `+` in feature `+foo` in package foo v0.1.0 ([ROOT]/foo), \
+  TOML parse error at line 8, column 17
+    |
+  8 |                 \"+foo\" = []
+    |                 ^^^^^^
+  invalid character `+` in feature name: `+foo`, \
   the first character must be a Unicode XID start character or digit \
   (most letters or `_` or `0` to `9`)
 ",
@@ -1989,8 +2090,12 @@ Caused by:
 error: failed to parse manifest at `[ROOT]/foo/Cargo.toml`
 
 Caused by:
-  invalid character `&` in feature `a&b` in package foo v0.1.0 ([ROOT]/foo), \
-  characters must be Unicode XID characters, `+`, or `.` \
+  TOML parse error at line 8, column 13
+    |
+  8 |             \"a&b\" = []
+    |             ^^^^^
+  invalid character `&` in feature name: `a&b`, \
+  characters must be Unicode XID characters, '-', `+`, or `.` \
   (numbers, `+`, `-`, `_`, `.`, or most letters)
 ",
         )
@@ -2022,7 +2127,11 @@ fn invalid_feature_name_slash_error() {
 error: failed to parse manifest at `[CWD]/Cargo.toml`
 
 Caused by:
-  feature named `foo/bar` is not allowed to contain slashes
+  TOML parse error at line 7, column 17
+    |
+  7 |                 \"foo/bar\" = []
+    |                 ^^^^^^^^^
+  invalid character `/` in feature name: `foo/bar`, feature name is not allowed to contain slashes
 ",
         )
         .run();

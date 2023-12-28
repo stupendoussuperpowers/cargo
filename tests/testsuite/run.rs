@@ -1,6 +1,8 @@
 //! Tests for the `cargo run` command.
 
-use cargo_test_support::{basic_bin_manifest, basic_lib_manifest, project, Project};
+use cargo_test_support::{
+    basic_bin_manifest, basic_lib_manifest, basic_manifest, project, Project,
+};
 use cargo_util::paths::dylib_path_envvar;
 
 #[cargo_test]
@@ -32,6 +34,43 @@ fn quiet_arg() {
     p.cargo("run --quiet")
         .with_stderr("")
         .with_stdout("hello")
+        .run();
+}
+
+#[cargo_test]
+fn unsupported_silent_arg() {
+    let p = project()
+        .file("src/main.rs", r#"fn main() { println!("hello"); }"#)
+        .build();
+
+    p.cargo("run -s")
+        .with_stderr(
+            "\
+error: unexpected argument '--silent' found
+
+  tip: a similar argument exists: '--quiet'
+
+Usage: cargo[EXE] run [OPTIONS] [ARGS]...
+
+For more information, try '--help'.
+",
+        )
+        .with_status(1)
+        .run();
+
+    p.cargo("run --silent")
+        .with_stderr(
+            "\
+error: unexpected argument '--silent' found
+
+  tip: a similar argument exists: '--quiet'
+
+Usage: cargo[EXE] run [OPTIONS] [ARGS]...
+
+For more information, try '--help'.
+",
+        )
+        .with_status(1)
         .run();
 }
 
@@ -1163,8 +1202,8 @@ fn run_with_library_paths() {
             &format!(
                 r##"
                     fn main() {{
-                        println!(r#"cargo:rustc-link-search=native={}"#);
-                        println!(r#"cargo:rustc-link-search={}"#);
+                        println!(r#"cargo::rustc-link-search=native={}"#);
+                        println!(r#"cargo::rustc-link-search={}"#);
                     }}
                 "##,
                 dir1.display(),
@@ -1222,9 +1261,9 @@ fn library_paths_sorted_alphabetically() {
             &format!(
                 r##"
                     fn main() {{
-                        println!(r#"cargo:rustc-link-search=native={}"#);
-                        println!(r#"cargo:rustc-link-search=native={}"#);
-                        println!(r#"cargo:rustc-link-search=native={}"#);
+                        println!(r#"cargo::rustc-link-search=native={}"#);
+                        println!(r#"cargo::rustc-link-search=native={}"#);
+                        println!(r#"cargo::rustc-link-search=native={}"#);
                     }}
                 "##,
                 dir1.display(),
@@ -1417,6 +1456,24 @@ fn default_run_workspace() {
 }
 
 #[cargo_test]
+fn print_env_verbose() {
+    let p = project()
+        .file("Cargo.toml", &basic_manifest("a", "0.0.1"))
+        .file("src/main.rs", r#"fn main() {println!("run-a");}"#)
+        .build();
+
+    p.cargo("run -vv")
+        .with_stderr(
+            "\
+[COMPILING] a v0.0.1 ([CWD])
+[RUNNING] `[..]CARGO_MANIFEST_DIR=[CWD][..] rustc --crate-name a[..]`
+[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[RUNNING] `[..]CARGO_MANIFEST_DIR=[CWD][..] target/debug/a[EXE]`",
+        )
+        .run();
+}
+
+#[cargo_test]
 #[cfg(target_os = "macos")]
 fn run_link_system_path_macos() {
     use cargo_test_support::paths::{self, CargoPathExt};
@@ -1478,8 +1535,8 @@ fn run_link_system_path_macos() {
             &format!(
                 r#"
                 fn main() {{
-                    println!("cargo:rustc-link-lib=foo");
-                    println!("cargo:rustc-link-search={}");
+                    println!("cargo::rustc-link-lib=foo");
+                    println!("cargo::rustc-link-search={}");
                 }}
                 "#,
                 p.target_debug_dir().display()

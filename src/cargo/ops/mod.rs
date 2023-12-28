@@ -1,6 +1,6 @@
 use crate::sources::CRATES_IO_DOMAIN;
 
-pub use self::cargo_clean::{clean, CleanOptions};
+pub use self::cargo_clean::{clean, CleanContext, CleanOptions};
 pub use self::cargo_compile::{
     compile, compile_with_exec, compile_ws, create_bcx, print, resolve_all_features, CompileOptions,
 };
@@ -30,6 +30,7 @@ pub use self::registry::yank;
 pub use self::registry::OwnersOptions;
 pub use self::registry::PublishOpts;
 pub use self::registry::RegistryCredentialConfig;
+pub use self::registry::RegistryOrIndex;
 pub use self::resolve::{
     add_overrides, get_resolved_packages, resolve_with_previous, resolve_ws, resolve_ws_with_opts,
     WorkspaceResolve,

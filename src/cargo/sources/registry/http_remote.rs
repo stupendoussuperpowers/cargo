@@ -1,10 +1,13 @@
 //! Access to a HTTP-based crate registry. See [`HttpRegistry`] for details.
 
+use crate::core::global_cache_tracker;
 use crate::core::{PackageId, SourceId};
 use crate::sources::registry::download;
 use crate::sources::registry::MaybeLock;
 use crate::sources::registry::{LoadResponse, RegistryConfig, RegistryData};
+use crate::util::cache_lock::CacheLockMode;
 use crate::util::errors::{CargoResult, HttpNotSuccessful};
+use crate::util::interning::InternedString;
 use crate::util::network::http::http_handle;
 use crate::util::network::retry::{Retry, RetryResult};
 use crate::util::network::sleep::SleepTracker;
@@ -14,7 +17,6 @@ use cargo_credential::Operation;
 use cargo_util::paths;
 use curl::easy::{Easy, List};
 use curl::multi::{EasyHandle, Multi};
-use log::{debug, trace};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
@@ -23,6 +25,7 @@ use std::path::{Path, PathBuf};
 use std::str;
 use std::task::{ready, Poll};
 use std::time::Duration;
+use tracing::{debug, trace};
 use url::Url;
 
 // HTTP headers
@@ -51,6 +54,9 @@ const UNKNOWN: &'static str = "Unknown";
 ///
 /// [RFC 2789]: https://github.com/rust-lang/rfcs/pull/2789
 pub struct HttpRegistry<'cfg> {
+    /// The name of this source, a unique string (across all sources) used as
+    /// the directory name where its cached content is stored.
+    name: InternedString,
     /// Path to the registry index (`$CARGO_HOME/registry/index/$REG-HASH`).
     ///
     /// To be fair, `HttpRegistry` doesn't store the registry index it
@@ -198,6 +204,7 @@ impl<'cfg> HttpRegistry<'cfg> {
             .expect("a url with the sparse+ stripped should still be valid");
 
         Ok(HttpRegistry {
+            name: name.into(),
             index_path: config.registry_index_path().join(name),
             cache_path: config.registry_cache_path().join(name),
             source_id,
@@ -335,7 +342,7 @@ impl<'cfg> HttpRegistry<'cfg> {
                 }),
                 RetryResult::Err(e) => Err(e),
                 RetryResult::Retry(sleep) => {
-                    debug!("download retry {:?} for {sleep}ms", download.path);
+                    debug!(target: "network", "download retry {:?} for {sleep}ms", download.path);
                     self.downloads.sleeping.push(sleep, (download, handle));
                     continue;
                 }
@@ -394,11 +401,11 @@ impl<'cfg> HttpRegistry<'cfg> {
                 Ok(json) => {
                     self.registry_config = Some(json);
                 }
-                Err(e) => log::debug!("failed to decode cached config.json: {}", e),
+                Err(e) => tracing::debug!("failed to decode cached config.json: {}", e),
             },
             Err(e) => {
                 if e.kind() != ErrorKind::NotFound {
-                    log::debug!("failed to read config.json cache: {}", e)
+                    tracing::debug!("failed to read config.json cache: {}", e)
                 }
             }
         }
@@ -423,7 +430,7 @@ impl<'cfg> HttpRegistry<'cfg> {
                 self.registry_config = Some(serde_json::from_slice(&raw_data)?);
                 if paths::create_dir_all(&config_json_path.parent().unwrap()).is_ok() {
                     if let Err(e) = fs::write(&config_json_path, &raw_data) {
-                        log::debug!("failed to write config.json cache: {}", e);
+                        tracing::debug!("failed to write config.json cache: {}", e);
                     }
                 }
                 Poll::Ready(Ok(self.registry_config.as_ref().unwrap()))
@@ -453,6 +460,11 @@ impl<'cfg> HttpRegistry<'cfg> {
 
 impl<'cfg> RegistryData for HttpRegistry<'cfg> {
     fn prepare(&self) -> CargoResult<()> {
+        self.config
+            .deferred_global_last_use()?
+            .mark_registry_index_used(global_cache_tracker::RegistryIndex {
+                encoded_registry_name: self.name,
+            });
         Ok(())
     }
 
@@ -461,7 +473,8 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
     }
 
     fn assert_index_locked<'a>(&self, path: &'a Filesystem) -> &'a Path {
-        self.config.assert_package_cache_locked(path)
+        self.config
+            .assert_package_cache_locked(CacheLockMode::DownloadExclusive, path)
     }
 
     fn is_updated(&self) -> bool {
@@ -547,11 +560,9 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
                     return Poll::Ready(Ok(LoadResponse::NotFound));
                 }
                 StatusCode::Unauthorized
-                    if !self.auth_required
-                        && path == Path::new(RegistryConfig::NAME)
-                        && self.config.cli_unstable().registry_auth =>
+                    if !self.auth_required && path == Path::new(RegistryConfig::NAME) =>
                 {
-                    debug!("re-attempting request for config.json with authorization included.");
+                    debug!(target: "network", "re-attempting request for config.json with authorization included.");
                     self.fresh.remove(path);
                     self.auth_required = true;
 
@@ -568,9 +579,11 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
                                     }
                                 }
                                 Ok(challenge) => {
-                                    debug!("ignoring non-Cargo challenge: {}", challenge.scheme)
+                                    debug!(target: "network", "ignoring non-Cargo challenge: {}", challenge.scheme)
                                 }
-                                Err(e) => debug!("failed to parse challenge: {}", e),
+                                Err(e) => {
+                                    debug!(target: "network", "failed to parse challenge: {}", e)
+                                }
                             }
                         }
                     }
@@ -586,12 +599,13 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
                     }
                     .into());
                     if self.auth_required {
-                        return Poll::Ready(err.context(auth::AuthorizationError {
-                            sid: self.source_id.clone(),
-                            default_registry: self.config.default_registry()?,
-                            login_url: self.login_url.clone(),
-                            reason: auth::AuthorizationErrorReason::TokenRejected,
-                        }));
+                        let auth_error = auth::AuthorizationError::new(
+                            self.config,
+                            self.source_id,
+                            self.login_url.clone(),
+                            auth::AuthorizationErrorReason::TokenRejected,
+                        )?;
+                        return Poll::Ready(err.context(auth_error));
                     } else {
                         return Poll::Ready(err);
                     }
@@ -609,16 +623,12 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
             }
         }
 
-        if !self.config.cli_unstable().registry_auth {
-            self.auth_required = false;
-        }
-
         // Looks like we're going to have to do a network request.
         self.start_fetch()?;
 
         let mut handle = http_handle(self.config)?;
         let full_url = self.full_url(path);
-        debug!("fetch {}", full_url);
+        debug!(target: "network", "fetch {}", full_url);
         handle.get(true)?;
         handle.url(&full_url)?;
         handle.follow_location(true)?;
@@ -651,9 +661,10 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
                 self.login_url.as_ref(),
                 Operation::Read,
                 self.auth_error_headers.clone(),
+                true,
             )?;
             headers.append(&format!("Authorization: {}", authorization))?;
-            trace!("including authorization for {}", full_url);
+            trace!(target: "network", "including authorization for {}", full_url);
         }
         handle.http_headers(headers)?;
 
@@ -662,7 +673,7 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
         // We do that through this token. Each request (and associated response) gets one.
         let token = self.downloads.next;
         self.downloads.next += 1;
-        debug!("downloading {} as {}", path.display(), token);
+        debug!(target: "network", "downloading {} as {}", path.display(), token);
         let is_new = self.downloads.pending_paths.insert(path.to_path_buf());
         assert!(is_new, "path queued for download more than once");
 
@@ -671,7 +682,7 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
         // That thread-local is set up in `block_until_ready` when it calls self.multi.perform,
         // which is what ultimately calls this method.
         handle.write_function(move |buf| {
-            trace!("{} - {} bytes of data", token, buf.len());
+            trace!(target: "network", "{} - {} bytes of data", token, buf.len());
             tls::with(|downloads| {
                 if let Some(downloads) = downloads {
                     downloads.pending[&token]
@@ -721,10 +732,7 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
     }
 
     fn config(&mut self) -> Poll<CargoResult<Option<RegistryConfig>>> {
-        let mut cfg = ready!(self.config()?).clone();
-        if !self.config.cli_unstable().registry_auth {
-            cfg.auth_required = false;
-        }
+        let cfg = ready!(self.config()?).clone();
         Poll::Ready(Ok(Some(cfg)))
     }
 
@@ -749,9 +757,11 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
                 Poll::Ready(cfg) => break cfg.to_owned(),
             }
         };
+
         download::download(
             &self.cache_path,
             &self.config,
+            self.name.clone(),
             pkg,
             checksum,
             registry_config,
@@ -764,7 +774,14 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
         checksum: &str,
         data: &[u8],
     ) -> CargoResult<File> {
-        download::finish_download(&self.cache_path, &self.config, pkg, checksum, data)
+        download::finish_download(
+            &self.cache_path,
+            &self.config,
+            self.name.clone(),
+            pkg,
+            checksum,
+            data,
+        )
     }
 
     fn is_crate_downloaded(&self, pkg: PackageId) -> bool {
@@ -772,7 +789,7 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
     }
 
     fn block_until_ready(&mut self) -> CargoResult<()> {
-        trace!(
+        trace!(target: "network",
             "block_until_ready: {} transfers pending",
             self.downloads.pending.len()
         );
@@ -787,7 +804,7 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
                     .perform()
                     .with_context(|| "failed to perform http requests")
             })?;
-            trace!("{} transfers remaining", remaining_in_multi);
+            trace!(target: "network", "{} transfers remaining", remaining_in_multi);
 
             if remaining_in_multi + self.downloads.sleeping.len() as u32 == 0 {
                 return Ok(());
@@ -795,7 +812,7 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
 
             if self.downloads.pending.is_empty() {
                 let delay = self.downloads.sleeping.time_to_next().unwrap();
-                debug!("sleeping main thread for {delay:?}");
+                debug!(target: "network", "sleeping main thread for {delay:?}");
                 std::thread::sleep(delay);
             } else {
                 // We have no more replies to provide the caller with,

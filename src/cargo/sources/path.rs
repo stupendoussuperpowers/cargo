@@ -3,15 +3,18 @@ use std::fmt::{self, Debug, Formatter};
 use std::path::{Path, PathBuf};
 use std::task::Poll;
 
-use crate::core::source::MaybePackage;
-use crate::core::{Dependency, Package, PackageId, QueryKind, Source, SourceId, Summary};
+use crate::core::{Dependency, Package, PackageId, SourceId};
 use crate::ops;
+use crate::sources::source::MaybePackage;
+use crate::sources::source::QueryKind;
+use crate::sources::source::Source;
+use crate::sources::IndexSummary;
 use crate::util::{internal, CargoResult, Config};
 use anyhow::Context as _;
 use cargo_util::paths;
 use filetime::FileTime;
 use ignore::gitignore::GitignoreBuilder;
-use log::{trace, warn};
+use tracing::{trace, warn};
 use walkdir::WalkDir;
 
 /// A source represents one or multiple packages gathering from a given root
@@ -28,7 +31,7 @@ pub struct PathSource<'cfg> {
     source_id: SourceId,
     /// The root path of this source.
     path: PathBuf,
-    /// Whether this source has updated all package informations it may contain.
+    /// Whether this source has updated all package information it may contain.
     updated: bool,
     /// Packages that this sources has discovered.
     packages: Vec<Package>,
@@ -95,7 +98,7 @@ impl<'cfg> PathSource<'cfg> {
     }
 
     /// Returns the packages discovered by this source. It may walk the
-    /// filesystem if package informations haven't yet updated.
+    /// filesystem if package information haven't yet updated.
     pub fn read_packages(&self) -> CargoResult<Vec<Package>> {
         if self.updated {
             Ok(self.packages.clone())
@@ -173,9 +176,8 @@ impl<'cfg> PathSource<'cfg> {
         };
 
         let filter = |path: &Path, is_dir: bool| {
-            let relative_path = match path.strip_prefix(root) {
-                Ok(p) => p,
-                Err(_) => return false,
+            let Ok(relative_path) = path.strip_prefix(root) else {
+                return false;
             };
 
             let rel = relative_path.as_os_str();
@@ -203,7 +205,7 @@ impl<'cfg> PathSource<'cfg> {
         let repo = match git2::Repository::discover(root) {
             Ok(repo) => repo,
             Err(e) => {
-                log::debug!(
+                tracing::debug!(
                     "could not discover git repo at or above {}: {}",
                     root.display(),
                     e
@@ -223,7 +225,7 @@ impl<'cfg> PathSource<'cfg> {
         let repo_relative_path = match paths::strip_prefix_canonical(root, repo_root) {
             Ok(p) => p,
             Err(e) => {
-                log::warn!(
+                tracing::warn!(
                     "cannot determine if path `{:?}` is in git repo `{:?}`: {:?}",
                     root,
                     repo_root,
@@ -326,7 +328,12 @@ impl<'cfg> PathSource<'cfg> {
 
             match file_path.file_name().and_then(|s| s.to_str()) {
                 // The `target` directory is never included.
-                Some("target") => continue,
+                Some("target") => {
+                    // Only filter out target if its in the package root.
+                    if file_path.parent().unwrap() == pkg_path {
+                        continue;
+                    }
+                }
 
                 // Keep track of all sub-packages found and also strip out all
                 // matches we've found so far. Note, though, that if we find
@@ -541,7 +548,7 @@ impl<'cfg> Source for PathSource<'cfg> {
         &mut self,
         dep: &Dependency,
         kind: QueryKind,
-        f: &mut dyn FnMut(Summary),
+        f: &mut dyn FnMut(IndexSummary),
     ) -> Poll<CargoResult<()>> {
         self.update()?;
         for s in self.packages.iter().map(|p| p.summary()) {
@@ -550,7 +557,7 @@ impl<'cfg> Source for PathSource<'cfg> {
                 QueryKind::Fuzzy => true,
             };
             if matched {
-                f(s.clone())
+                f(IndexSummary::Candidate(s.clone()))
             }
         }
         Poll::Ready(Ok(()))

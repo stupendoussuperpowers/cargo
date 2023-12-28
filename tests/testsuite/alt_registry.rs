@@ -715,7 +715,14 @@ fn bad_registry_name() {
 [ERROR] failed to parse manifest at `[CWD]/Cargo.toml`
 
 Caused by:
-  invalid character ` ` in registry name: `bad name`, [..]",
+  TOML parse error at line 7, column 17
+    |
+  7 |                 [dependencies.bar]
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  invalid character ` ` in registry name: `bad name`, [..]
+
+
+",
         )
         .run();
 
@@ -1389,10 +1396,9 @@ fn both_index_and_registry() {
         p.cargo(cmd)
             .arg("--registry=foo")
             .arg("--index=foo")
-            .with_status(101)
-            .with_stderr(
-                "[ERROR] both `--index` and `--registry` \
-                should not be set at the same time",
+            .with_status(1)
+            .with_stderr_contains(
+                "error: the argument '--registry <REGISTRY>' cannot be used with '--index <INDEX>'",
             )
             .run();
     }
@@ -1505,4 +1511,128 @@ fn publish_with_transitive_dep() {
         .file("src/lib.rs", "")
         .build();
     p2.cargo("publish").run();
+}
+
+#[cargo_test]
+fn warn_for_unused_fields() {
+    let _ = RegistryBuilder::new()
+        .no_configure_token()
+        .alternative()
+        .build();
+    let p = project()
+        .file("src/lib.rs", "")
+        .file(
+            ".cargo/config.toml",
+            "[registry]
+            unexpected-field = 'foo'
+            [registries.alternative]
+            unexpected-field = 'foo'
+            ",
+        )
+        .build();
+
+    p.cargo("publish --registry alternative")
+        .with_status(101)
+        .with_stderr(
+            "\
+[UPDATING] `alternative` index
+[WARNING] unused config key `registries.alternative.unexpected-field` in `[..]config.toml`
+[ERROR] no token found for `alternative`, please run `cargo login --registry alternative`
+or use environment variable CARGO_REGISTRIES_ALTERNATIVE_TOKEN",
+        )
+        .run();
+
+    p.cargo("publish --registry crates-io")
+        .with_status(101)
+        .with_stderr(
+            "\
+[UPDATING] crates.io index
+[WARNING] unused config key `registry.unexpected-field` in `[..]config.toml`
+[ERROR] no token found, please run `cargo login`
+or use environment variable CARGO_REGISTRY_TOKEN",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn config_empty_registry_name() {
+    let _ = RegistryBuilder::new()
+        .no_configure_token()
+        .alternative()
+        .build();
+    let p = project()
+        .file("src/lib.rs", "")
+        .file(
+            ".cargo/config.toml",
+            "[registry.'']
+            ",
+        )
+        .build();
+
+    p.cargo("publish")
+        .arg("--registry")
+        .arg("")
+        .with_status(101)
+        .with_stderr(
+            "\
+[ERROR] registry name cannot be empty",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn empty_registry_flag() {
+    let p = project().file("src/lib.rs", "").build();
+
+    p.cargo("publish")
+        .arg("--registry")
+        .arg("")
+        .with_status(101)
+        .with_stderr(
+            "\
+[ERROR] registry name cannot be empty",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn empty_dependency_registry() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+
+                [dependencies]
+                bar = { version = "0.1.0", registry = "" }
+            "#,
+        )
+        .file(
+            "src/lib.rs",
+            "
+            extern crate bar;
+            pub fn f() { bar::bar(); }
+            ",
+        )
+        .build();
+
+    p.cargo("check")
+        .with_status(101)
+        .with_stderr(
+            "\
+[ERROR] failed to parse manifest at `[CWD]/Cargo.toml`
+
+Caused by:
+  TOML parse error at line 7, column 23
+    |
+  7 |                 bar = { version = \"0.1.0\", registry = \"\" }
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  registry name cannot be empty
+
+
+",
+        )
+        .run();
 }

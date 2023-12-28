@@ -7,31 +7,33 @@ use std::collections::BTreeSet;
 use std::collections::VecDeque;
 use std::fmt::Write;
 use std::path::Path;
+use std::str::FromStr;
 
 use anyhow::Context as _;
 use cargo_util::paths;
+use cargo_util_schemas::manifest::RustVersion;
 use indexmap::IndexSet;
 use itertools::Itertools;
-use termcolor::Color::Green;
-use termcolor::Color::Red;
-use termcolor::ColorSpec;
 use toml_edit::Item as TomlItem;
 
 use crate::core::dependency::DepKind;
 use crate::core::registry::PackageRegistry;
 use crate::core::FeatureValue;
 use crate::core::Package;
-use crate::core::QueryKind;
 use crate::core::Registry;
 use crate::core::Shell;
 use crate::core::Summary;
 use crate::core::Workspace;
+use crate::sources::source::QueryKind;
+use crate::util::cache_lock::CacheLockMode;
+use crate::util::style;
 use crate::util::toml_mut::dependency::Dependency;
 use crate::util::toml_mut::dependency::GitSource;
 use crate::util::toml_mut::dependency::MaybeWorkspace;
 use crate::util::toml_mut::dependency::PathSource;
 use crate::util::toml_mut::dependency::Source;
 use crate::util::toml_mut::dependency::WorkspaceSource;
+use crate::util::toml_mut::is_sorted;
 use crate::util::toml_mut::manifest::DepTable;
 use crate::util::toml_mut::manifest::LocalManifest;
 use crate::CargoResult;
@@ -78,7 +80,9 @@ pub fn add(workspace: &Workspace<'_>, options: &AddOptions<'_>) -> CargoResult<(
     let mut registry = PackageRegistry::new(options.config)?;
 
     let deps = {
-        let _lock = options.config.acquire_package_cache_lock()?;
+        let _lock = options
+            .config
+            .acquire_package_cache_lock(CacheLockMode::DownloadExclusive)?;
         registry.lock_patches();
         options
             .dependencies
@@ -193,6 +197,20 @@ pub fn add(workspace: &Workspace<'_>, options: &AddOptions<'_>) -> CargoResult<(
         print_dep_table_msg(&mut options.config.shell(), &dep)?;
 
         manifest.insert_into_table(&dep_table, &dep)?;
+        if dep.optional == Some(true) {
+            let is_namespaced_features_supported =
+                check_rust_version_for_optional_dependency(options.spec.rust_version())?;
+            if is_namespaced_features_supported {
+                let dep_key = dep.toml_key();
+                if !manifest.is_explicit_dep_activation(dep_key) {
+                    let table = manifest.get_table_mut(&[String::from("features")])?;
+                    let dep_name = dep.rename.as_deref().unwrap_or(&dep.name);
+                    let new_feature: toml_edit::Value =
+                        [format!("dep:{dep_name}")].iter().collect();
+                    table[dep_key] = toml_edit::value(new_feature);
+                }
+            }
+        }
         manifest.gc_dep(dep.toml_key());
     }
 
@@ -240,6 +258,9 @@ pub struct DepOp {
 
     /// Whether dependency is optional
     pub optional: Option<bool>,
+
+    /// Whether dependency is public
+    pub public: Option<bool>,
 
     /// Registry for looking up dependency version
     pub registry: Option<String>,
@@ -466,6 +487,26 @@ fn check_invalid_ws_keys(toml_key: &str, arg: &DepOp) -> CargoResult<()> {
     Ok(())
 }
 
+/// When the `--optional` option is added using `cargo add`, we need to
+/// check the current rust-version. As the `dep:` syntax is only avaliable
+/// starting with Rust 1.60.0
+///
+/// `true` means that the rust-version is None or the rust-version is higher
+/// than the version needed.
+///
+/// Note: Previous versions can only use the implicit feature name.
+fn check_rust_version_for_optional_dependency(
+    rust_version: Option<&RustVersion>,
+) -> CargoResult<bool> {
+    match rust_version {
+        Some(version) => {
+            let syntax_support_version = RustVersion::from_str("1.60.0")?;
+            Ok(&syntax_support_version <= version)
+        }
+        None => Ok(true),
+    }
+}
+
 /// Provide the existing dependency for the target table
 ///
 /// If it doesn't exist but exists in another table, let's use that as most likely users
@@ -503,9 +544,7 @@ fn get_existing_dependency(
         })
         .collect();
     possible.sort_by_key(|(key, _)| *key);
-    let (key, dep) = if let Some(item) = possible.pop() {
-        item
-    } else {
+    let Some((key, dep)) = possible.pop() else {
         return Ok(None);
     };
     let mut dep = dep?;
@@ -544,7 +583,7 @@ fn get_latest_dependency(
             unreachable!("registry dependencies required, found a workspace dependency");
         }
         MaybeWorkspace::Other(query) => {
-            let mut possibilities = loop {
+            let possibilities = loop {
                 match registry.query_vec(&query, QueryKind::Fuzzy) {
                     std::task::Poll::Ready(res) => {
                         break res?;
@@ -552,6 +591,11 @@ fn get_latest_dependency(
                     std::task::Poll::Pending => registry.block_until_ready()?,
                 }
             };
+
+            let mut possibilities: Vec<_> = possibilities
+                .into_iter()
+                .map(|s| s.into_summary())
+                .collect();
 
             possibilities.sort_by_key(|s| {
                 // Fallback to a pre-release if no official release is available by sorting them as
@@ -567,16 +611,7 @@ fn get_latest_dependency(
             })?;
 
             if config.cli_unstable().msrv_policy && honor_rust_version {
-                fn parse_msrv(rust_version: impl AsRef<str>) -> (u64, u64, u64) {
-                    // HACK: `rust-version` is a subset of the `VersionReq` syntax that only ever
-                    // has one comparator with a required minor and optional patch, and uses no
-                    // other features. If in the future this syntax is expanded, this code will need
-                    // to be updated.
-                    let version_req = semver::VersionReq::parse(rust_version.as_ref()).unwrap();
-                    assert!(version_req.comparators.len() == 1);
-                    let comp = &version_req.comparators[0];
-                    assert_eq!(comp.op, semver::Op::Caret);
-                    assert_eq!(comp.pre, semver::Prerelease::EMPTY);
+                fn parse_msrv(comp: &RustVersion) -> (u64, u64, u64) {
                     (comp.major, comp.minor.unwrap_or(0), comp.patch.unwrap_or(0))
                 }
 
@@ -636,7 +671,7 @@ fn get_latest_dependency(
 
 fn rust_version_incompat_error(
     dep: &str,
-    rust_version: &str,
+    rust_version: &RustVersion,
     lowest_rust_version: Option<&Summary>,
 ) -> anyhow::Error {
     let mut error_msg = format!(
@@ -679,6 +714,12 @@ fn select_package(
                     std::task::Poll::Pending => registry.block_until_ready()?,
                 }
             };
+
+            let possibilities: Vec<_> = possibilities
+                .into_iter()
+                .map(|s| s.into_summary())
+                .collect();
+
             match possibilities.len() {
                 0 => {
                     let source = dependency
@@ -753,6 +794,13 @@ fn populate_dependency(mut dependency: Dependency, arg: &DepOp) -> Dependency {
             dependency.optional = Some(true);
         } else {
             dependency.optional = None;
+        }
+    }
+    if let Some(value) = arg.public {
+        if value {
+            dependency.public = Some(true);
+        } else {
+            dependency.public = None;
         }
     }
     if let Some(value) = arg.default_features {
@@ -897,6 +945,7 @@ fn populate_available_features(
     // in the lock file for a given version requirement.
     let lowest_common_denominator = possibilities
         .iter()
+        .map(|s| s.as_summary())
         .min_by_key(|s| {
             // Fallback to a pre-release if no official release is available by sorting them as
             // more.
@@ -941,6 +990,9 @@ fn print_action_msg(shell: &mut Shell, dep: &DependencyUI, section: &[String]) -
     if dep.optional().unwrap_or(false) {
         write!(message, " optional")?;
     }
+    if dep.public().unwrap_or(false) {
+        write!(message, " public")?;
+    }
     let section = if section.len() == 1 {
         section[0].clone()
     } else {
@@ -955,61 +1007,62 @@ fn print_dep_table_msg(shell: &mut Shell, dep: &DependencyUI) -> CargoResult<()>
     if matches!(shell.verbosity(), crate::core::shell::Verbosity::Quiet) {
         return Ok(());
     }
+
+    let stderr = shell.err();
+    let good = style::GOOD.render();
+    let error = style::ERROR.render();
+    let reset = anstyle::Reset.render();
+
     let (activated, deactivated) = dep.features();
     if !activated.is_empty() || !deactivated.is_empty() {
         let prefix = format!("{:>13}", " ");
-        let suffix = if let Some(version) = &dep.available_version {
-            let mut version = version.clone();
-            version.build = Default::default();
-            let version = version.to_string();
-            // Avoid displaying the version if it will visually look like the version req that we
-            // showed earlier
-            let version_req = dep
-                .version()
-                .and_then(|v| semver::VersionReq::parse(v).ok())
-                .and_then(|v| precise_version(&v));
-            if version_req.as_deref() != Some(version.as_str()) {
-                format!(" as of v{version}")
-            } else {
-                "".to_owned()
+        let suffix = format_features_version_suffix(&dep);
+
+        writeln!(stderr, "{prefix}Features{suffix}:")?;
+
+        const MAX_FEATURE_PRINTS: usize = 30;
+        let total_activated = activated.len();
+        let total_deactivated = deactivated.len();
+
+        if total_activated <= MAX_FEATURE_PRINTS {
+            for feat in activated {
+                writeln!(stderr, "{prefix}{good}+{reset} {feat}")?;
             }
         } else {
-            "".to_owned()
-        };
-        shell.write_stderr(
-            format_args!("{}Features{}:\n", prefix, suffix),
-            &ColorSpec::new(),
-        )?;
-        for feat in activated {
-            shell.write_stderr(&prefix, &ColorSpec::new())?;
-            shell.write_stderr('+', &ColorSpec::new().set_bold(true).set_fg(Some(Green)))?;
-            shell.write_stderr(format_args!(" {}\n", feat), &ColorSpec::new())?;
+            writeln!(stderr, "{prefix}{total_activated} activated features")?;
         }
-        for feat in deactivated {
-            shell.write_stderr(&prefix, &ColorSpec::new())?;
-            shell.write_stderr('-', &ColorSpec::new().set_bold(true).set_fg(Some(Red)))?;
-            shell.write_stderr(format_args!(" {}\n", feat), &ColorSpec::new())?;
+
+        if total_activated + total_deactivated <= MAX_FEATURE_PRINTS {
+            for feat in deactivated {
+                writeln!(stderr, "{prefix}{error}-{reset} {feat}")?;
+            }
+        } else {
+            writeln!(stderr, "{prefix}{total_deactivated} deactivated features")?;
         }
     }
 
     Ok(())
 }
 
-// Based on Iterator::is_sorted from nightly std; remove in favor of that when stabilized.
-fn is_sorted(mut it: impl Iterator<Item = impl PartialOrd>) -> bool {
-    let mut last = match it.next() {
-        Some(e) => e,
-        None => return true,
-    };
-
-    for curr in it {
-        if curr < last {
-            return false;
+fn format_features_version_suffix(dep: &DependencyUI) -> String {
+    if let Some(version) = &dep.available_version {
+        let mut version = version.clone();
+        version.build = Default::default();
+        let version = version.to_string();
+        // Avoid displaying the version if it will visually look like the version req that we
+        // showed earlier
+        let version_req = dep
+            .version()
+            .and_then(|v| semver::VersionReq::parse(v).ok())
+            .and_then(|v| precise_version(&v));
+        if version_req.as_deref() != Some(version.as_str()) {
+            format!(" as of v{version}")
+        } else {
+            "".to_owned()
         }
-        last = curr;
+    } else {
+        "".to_owned()
     }
-
-    true
 }
 
 fn find_workspace_dep(toml_key: &str, root_manifest: &Path) -> CargoResult<Dependency> {

@@ -108,6 +108,7 @@ error: no such command: `echo`
 <tab>Did you mean `bench`?
 
 <tab>View all installed commands with `cargo --list`
+<tab>Find a package to install `echo` with `cargo search cargo-echo`
 ",
         )
         .run();
@@ -162,7 +163,7 @@ fn warn_when_plugin_masks_manifest_on_stable() {
         .with_stdout("")
         .with_stderr(
             "\
-warning: external subcommand `echo.rs` has the appearance of a manfiest-command
+warning: external subcommand `echo.rs` has the appearance of a manifest-command
 This was previously accepted but will be phased out when `-Zscript` is stabilized.
 For more information, see issue #12207 <https://github.com/rust-lang/cargo/issues/12207>.
 ",
@@ -208,11 +209,10 @@ error: running `echo.rs` requires `-Zscript`
 #[cargo_test]
 fn clean_output_with_edition() {
     let script = r#"#!/usr/bin/env cargo
-
-//! ```cargo
-//! [package]
-//! edition = "2018"
-//! ```
+```cargo
+[package]
+edition = "2018"
+```
 
 fn main() {
     println!("Hello world!");
@@ -240,10 +240,9 @@ fn main() {
 #[cargo_test]
 fn warning_without_edition() {
     let script = r#"#!/usr/bin/env cargo
-
-//! ```cargo
-//! [package]
-//! ```
+```cargo
+[package]
+```
 
 fn main() {
     println!("Hello world!");
@@ -625,11 +624,10 @@ fn missing_script_rs() {
 fn test_name_same_as_dependency() {
     Package::new("script", "1.0.0").publish();
     let script = r#"#!/usr/bin/env cargo
-
-//! ```cargo
-//! [dependencies]
-//! script = "1.0.0"
-//! ```
+```cargo
+[dependencies]
+script = "1.0.0"
+```
 
 fn main() {
     println!("Hello world!");
@@ -662,11 +660,10 @@ fn main() {
 #[cargo_test]
 fn test_path_dep() {
     let script = r#"#!/usr/bin/env cargo
-
-//! ```cargo
-//! [dependencies]
-//! bar.path = "./bar"
-//! ```
+```cargo
+[dependencies]
+bar.path = "./bar"
+```
 
 fn main() {
     println!("Hello world!");
@@ -980,6 +977,7 @@ fn cmd_clean_with_embedded() {
         .with_stderr(
             "\
 [WARNING] `package.edition` is unspecified, defaulting to `2021`
+[REMOVED] [..] files, [..] total
 ",
         )
         .run();

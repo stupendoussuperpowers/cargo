@@ -453,6 +453,43 @@ fn custom_build_env_var_rustc_linker() {
     p.cargo("build --target").arg(&target).run();
 }
 
+// Only run this test on linux, since it's difficult to construct
+// a case suitable for all platforms.
+// See:https://github.com/rust-lang/cargo/pull/12535#discussion_r1306618264
+#[cargo_test]
+#[cfg(target_os = "linux")]
+fn custom_build_env_var_rustc_linker_with_target_cfg() {
+    if cross_compile::disabled() {
+        return;
+    }
+
+    let target = cross_compile::alternate();
+    let p = project()
+        .file(
+            ".cargo/config",
+            r#"
+            [target.'cfg(target_pointer_width = "32")']
+            linker = "/path/to/linker"
+            "#,
+        )
+        .file(
+            "build.rs",
+            r#"
+            use std::env;
+
+            fn main() {
+                assert!(env::var("RUSTC_LINKER").unwrap().ends_with("/path/to/linker"));
+            }
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    // no crate type set => linker never called => build succeeds if and
+    // only if build.rs succeeds, despite linker binary not existing.
+    p.cargo("build --target").arg(&target).run();
+}
+
 #[cargo_test]
 fn custom_build_env_var_rustc_linker_bad_host_target() {
     let target = rustc_host();
@@ -787,7 +824,7 @@ fn custom_build_script_wrong_rustc_flags() {
         .file("src/main.rs", "fn main() {}")
         .file(
             "build.rs",
-            r#"fn main() { println!("cargo:rustc-flags=-aaa -bbb"); }"#,
+            r#"fn main() { println!("cargo::rustc-flags=-aaa -bbb"); }"#,
         )
         .build();
 
@@ -833,7 +870,7 @@ fn custom_build_script_rustc_flags() {
             "foo/build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rustc-flags=-l nonexistinglib -L /dummy/path1 -L /dummy/path2");
+                    println!("cargo::rustc-flags=-l nonexistinglib -L /dummy/path1 -L /dummy/path2");
                 }
             "#,
         )
@@ -892,7 +929,7 @@ fn custom_build_script_rustc_flags_no_space() {
             "foo/build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rustc-flags=-lnonexistinglib -L/dummy/path1 -L/dummy/path2");
+                    println!("cargo::rustc-flags=-lnonexistinglib -L/dummy/path1 -L/dummy/path2");
                 }
             "#,
         )
@@ -991,7 +1028,7 @@ versions that meet the requirements `*` are: 0.5.0
 
 the package `a-sys` links to the native library `a`, but it conflicts with a previous package which links to `a` as well:
 package `foo v0.5.0 ([..])`
-Only one package in the dependency graph may specify the same links value. This helps ensure that only one copy of a native library is linked in the final binary. Try to adjust your dependencies so that only one package uses the links ='a-sys' value. For more information, see https://doc.rust-lang.org/cargo/reference/resolver.html#links.
+Only one package in the dependency graph may specify the same links value. This helps ensure that only one copy of a native library is linked in the final binary. Try to adjust your dependencies so that only one package uses the `links = \"a\"` value. For more information, see https://doc.rust-lang.org/cargo/reference/resolver.html#links.
 
 failed to select a version for `a-sys` which could resolve this conflict
 ").run();
@@ -1111,7 +1148,7 @@ versions that meet the requirements `*` are: 0.5.0
 
 the package `a-sys` links to the native library `a`, but it conflicts with a previous package which links to `a` as well:
 package `foo v0.5.0 ([..])`
-Only one package in the dependency graph may specify the same links value. This helps ensure that only one copy of a native library is linked in the final binary. Try to adjust your dependencies so that only one package uses the links ='a-sys' value. For more information, see https://doc.rust-lang.org/cargo/reference/resolver.html#links.
+Only one package in the dependency graph may specify the same links value. This helps ensure that only one copy of a native library is linked in the final binary. Try to adjust your dependencies so that only one package uses the `links = \"a\"` value. For more information, see https://doc.rust-lang.org/cargo/reference/resolver.html#links.
 
 failed to select a version for `a-sys` which could resolve this conflict
 ").run();
@@ -1271,8 +1308,8 @@ fn links_passes_env_vars() {
                     let lib = env::var("CARGO_MANIFEST_LINKS").unwrap();
                     assert_eq!(lib, "foo");
 
-                    println!("cargo:foo=bar");
-                    println!("cargo:bar=baz");
+                    println!("cargo::metadata=foo=bar");
+                    println!("cargo::metadata=bar=baz");
                 }
             "#,
         )
@@ -1338,8 +1375,8 @@ fn rebuild_continues_to_pass_env_vars() {
             r#"
                 use std::time::Duration;
                 fn main() {
-                    println!("cargo:foo=bar");
-                    println!("cargo:bar=baz");
+                    println!("cargo::metadata=foo=bar");
+                    println!("cargo::metadata=bar=baz");
                     std::thread::sleep(Duration::from_millis(500));
                 }
             "#,
@@ -1434,6 +1471,7 @@ fn testing_and_such() {
 [DOCUMENTING] foo v0.5.0 ([CWD])
 [RUNNING] `rustdoc [..]`
 [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[GENERATED] [CWD]/target/doc/foo/index.html
 ",
         )
         .run();
@@ -1484,7 +1522,7 @@ fn propagation_of_l_flags() {
         .file("a/src/lib.rs", "")
         .file(
             "a/build.rs",
-            r#"fn main() { println!("cargo:rustc-flags=-L bar"); }"#,
+            r#"fn main() { println!("cargo::rustc-flags=-L bar"); }"#,
         )
         .file(
             "b/Cargo.toml",
@@ -1557,7 +1595,7 @@ fn propagation_of_l_flags_new() {
             "a/build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rustc-link-search=bar");
+                    println!("cargo::rustc-link-search=bar");
                 }
             "#,
         )
@@ -1678,7 +1716,7 @@ fn build_deps_not_for_normal() {
         .with_stderr_contains("[..]can't find crate for `aaaaa`[..]")
         .with_stderr_contains(
             "\
-[ERROR] could not compile `foo` (lib) due to previous error
+[ERROR] could not compile `foo` (lib) due to 1 previous error
 
 Caused by:
   process didn't exit successfully: [..]
@@ -1865,8 +1903,8 @@ fn output_separate_lines() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rustc-flags=-L foo");
-                    println!("cargo:rustc-flags=-l static=foo");
+                    println!("cargo::rustc-flags=-L foo");
+                    println!("cargo::rustc-flags=-l static=foo");
                 }
             "#,
         )
@@ -1903,10 +1941,10 @@ fn output_separate_lines_new() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rustc-link-search=foo");
-                    println!("cargo:rustc-link-lib=static=foo");
-                    println!("cargo:rustc-link-lib=bar");
-                    println!("cargo:rustc-link-search=bar");
+                    println!("cargo::rustc-link-search=foo");
+                    println!("cargo::rustc-link-lib=static=foo");
+                    println!("cargo::rustc-link-lib=bar");
+                    println!("cargo::rustc-link-search=bar");
                 }
             "#,
         )
@@ -2280,7 +2318,7 @@ fn build_script_with_dynamic_native_dependency() {
                         fs::copy(root.join("builder.dll.lib"),
                                  out_dir.join("builder.dll.lib")).unwrap();
                     }
-                    println!("cargo:rustc-link-search=native={}", out_dir.display());
+                    println!("cargo::rustc-link-search=native={}", out_dir.display());
                 }
             "#,
         )
@@ -2448,7 +2486,7 @@ fn cfg_feedback() {
         .file("src/main.rs", "#[cfg(foo)] fn main() {}")
         .file(
             "build.rs",
-            r#"fn main() { println!("cargo:rustc-cfg=foo"); }"#,
+            r#"fn main() { println!("cargo::rustc-cfg=foo"); }"#,
         )
         .build();
     p.cargo("build -v").run();
@@ -2502,7 +2540,7 @@ fn cfg_test() {
         )
         .file(
             "build.rs",
-            r#"fn main() { println!("cargo:rustc-cfg=foo"); }"#,
+            r#"fn main() { println!("cargo::rustc-cfg=foo"); }"#,
         )
         .file(
             "src/lib.rs",
@@ -2567,7 +2605,7 @@ fn cfg_doc() {
         )
         .file(
             "build.rs",
-            r#"fn main() { println!("cargo:rustc-cfg=foo"); }"#,
+            r#"fn main() { println!("cargo::rustc-cfg=foo"); }"#,
         )
         .file("src/lib.rs", "#[cfg(foo)] pub fn foo() {}")
         .file(
@@ -2582,7 +2620,7 @@ fn cfg_doc() {
         )
         .file(
             "bar/build.rs",
-            r#"fn main() { println!("cargo:rustc-cfg=bar"); }"#,
+            r#"fn main() { println!("cargo::rustc-cfg=bar"); }"#,
         )
         .file("bar/src/lib.rs", "#[cfg(bar)] pub fn bar() {}")
         .build();
@@ -2735,7 +2773,7 @@ fn env_build() {
         )
         .file(
             "build.rs",
-            r#"fn main() { println!("cargo:rustc-env=FOO=foo"); }"#,
+            r#"fn main() { println!("cargo::rustc-env=FOO=foo"); }"#,
         )
         .build();
     p.cargo("build -v").run();
@@ -2757,7 +2795,7 @@ fn env_test() {
         )
         .file(
             "build.rs",
-            r#"fn main() { println!("cargo:rustc-env=FOO=foo"); }"#,
+            r#"fn main() { println!("cargo::rustc-env=FOO=foo"); }"#,
         )
         .file(
             "src/lib.rs",
@@ -2817,7 +2855,7 @@ fn env_doc() {
         )
         .file(
             "build.rs",
-            r#"fn main() { println!("cargo:rustc-env=FOO=foo"); }"#,
+            r#"fn main() { println!("cargo::rustc-env=FOO=foo"); }"#,
         )
         .build();
     p.cargo("doc -v").run();
@@ -2867,7 +2905,7 @@ fn flags_go_into_tests() {
             "a/build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rustc-link-search=test");
+                    println!("cargo::rustc-link-search=test");
                 }
             "#,
         )
@@ -2961,7 +2999,7 @@ fn diamond_passes_args_only_once() {
             "c/build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rustc-link-search=native=test");
+                    println!("cargo::rustc-link-search=native=test");
                 }
             "#,
         )
@@ -3008,7 +3046,7 @@ fn adding_an_override_invalidates() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rustc-link-search=native=foo");
+                    println!("cargo::rustc-link-search=native=foo");
                 }
             "#,
         )
@@ -3207,7 +3245,6 @@ fn fresh_builds_possible_with_multiple_metadata_overrides() {
         .run();
 
     p.cargo("build -v")
-        .env("CARGO_LOG", "cargo::ops::cargo_rustc::fingerprint=info")
         .with_stderr(
             "\
 [FRESH] foo v0.5.0 ([..])
@@ -3237,8 +3274,8 @@ fn generate_good_d_files() {
             "awoo/build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rerun-if-changed=build.rs");
-                    println!("cargo:rerun-if-changed=barkbarkbark");
+                    println!("cargo::rerun-if-changed=build.rs");
+                    println!("cargo::rerun-if-changed=barkbarkbark");
                 }
             "#,
         )
@@ -3316,8 +3353,8 @@ fn generate_good_d_files_for_external_tools() {
             "awoo/build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rerun-if-changed=build.rs");
-                    println!("cargo:rerun-if-changed=barkbarkbark");
+                    println!("cargo::rerun-if-changed=build.rs");
+                    println!("cargo::rerun-if-changed=barkbarkbark");
                 }
             "#,
         )
@@ -3378,8 +3415,8 @@ fn rebuild_only_on_explicit_paths() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rerun-if-changed=foo");
-                    println!("cargo:rerun-if-changed=bar");
+                    println!("cargo::rerun-if-changed=foo");
+                    println!("cargo::rerun-if-changed=bar");
                 }
             "#,
         )
@@ -3434,7 +3471,7 @@ fn rebuild_only_on_explicit_paths() {
 
     // random other files do not affect freshness
     println!("run baz");
-    p.change_file("baz", "");
+    p.change_file("baz", "// modified");
     p.cargo("build -v")
         .with_stderr(
             "\
@@ -3446,7 +3483,7 @@ fn rebuild_only_on_explicit_paths() {
 
     // but changing dependent files does
     println!("run foo change");
-    p.change_file("foo", "");
+    p.change_file("foo", "// modified");
     p.cargo("build -v")
         .with_stderr(
             "\
@@ -3506,7 +3543,7 @@ fn doctest_receives_build_link_args() {
             "a/build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rustc-link-search=native=bar");
+                    println!("cargo::rustc-link-search=native=bar");
                 }
             "#,
         )
@@ -3540,7 +3577,7 @@ fn please_respect_the_dag() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rustc-link-search=native=foo");
+                    println!("cargo::rustc-link-search=native=foo");
                 }
             "#,
         )
@@ -3560,7 +3597,7 @@ fn please_respect_the_dag() {
             "a/build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rustc-link-search=native=bar");
+                    println!("cargo::rustc-link-search=native=bar");
                 }
             "#,
         )
@@ -3595,7 +3632,7 @@ fn non_utf8_output() {
                     out.write_all(b"\xff\xff\n").unwrap();
 
                     // now print some cargo metadata that's utf8
-                    println!("cargo:rustc-cfg=foo");
+                    println!("cargo::rustc-cfg=foo");
 
                     // now print more non-utf8
                     out.write_all(b"\xff\xff\n").unwrap();
@@ -3728,8 +3765,8 @@ fn warnings_emitted() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:warning=foo");
-                    println!("cargo:warning=bar");
+                    println!("cargo::warning=foo");
+                    println!("cargo::warning=bar");
                 }
             "#,
         )
@@ -3741,8 +3778,8 @@ fn warnings_emitted() {
 [COMPILING] foo v0.5.0 ([..])
 [RUNNING] `rustc [..]`
 [RUNNING] `[..]`
-warning: foo
-warning: bar
+warning: foo@0.5.0: foo
+warning: foo@0.5.0: bar
 [RUNNING] `rustc [..]`
 [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
 ",
@@ -3768,8 +3805,8 @@ fn warnings_emitted_when_build_script_panics() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:warning=foo");
-                    println!("cargo:warning=bar");
+                    println!("cargo::warning=foo");
+                    println!("cargo::warning=bar");
                     panic!();
                 }
             "#,
@@ -3779,7 +3816,7 @@ fn warnings_emitted_when_build_script_panics() {
     p.cargo("build")
         .with_status(101)
         .with_stdout("")
-        .with_stderr_contains("warning: foo\nwarning: bar")
+        .with_stderr_contains("warning: foo@0.5.0: foo\nwarning: foo@0.5.0: bar")
         .run();
 }
 
@@ -3790,8 +3827,8 @@ fn warnings_hidden_for_upstream() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:warning=foo");
-                    println!("cargo:warning=bar");
+                    println!("cargo::warning=foo");
+                    println!("cargo::warning=bar");
                 }
             "#,
         )
@@ -3849,8 +3886,8 @@ fn warnings_printed_on_vv() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:warning=foo");
-                    println!("cargo:warning=bar");
+                    println!("cargo::warning=foo");
+                    println!("cargo::warning=bar");
                 }
             "#,
         )
@@ -3892,8 +3929,8 @@ fn warnings_printed_on_vv() {
 [COMPILING] bar v0.1.0
 [RUNNING] `[..] rustc [..]`
 [RUNNING] `[..]`
-warning: foo
-warning: bar
+warning: bar@0.1.0: foo
+warning: bar@0.1.0: bar
 [RUNNING] `[..] rustc [..]`
 [COMPILING] foo v0.5.0 ([..])
 [RUNNING] `[..] rustc [..]`
@@ -3966,7 +4003,7 @@ fn links_with_dots() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rustc-link-search=bar")
+                    println!("cargo::rustc-link-search=bar")
                 }
             "#,
         )
@@ -4121,7 +4158,7 @@ fn assume_build_script_when_build_rs_present() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rustc-cfg=foo");
+                    println!("cargo::rustc-cfg=foo");
                 }
             "#,
         )
@@ -4157,7 +4194,7 @@ fn if_build_set_to_false_dont_treat_build_rs_as_build_script() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rustc-cfg=foo");
+                    println!("cargo::rustc-cfg=foo");
                 }
             "#,
         )
@@ -4186,7 +4223,7 @@ fn deterministic_rustc_dependency_flags() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rustc-flags=-L native=test1");
+                    println!("cargo::rustc-flags=-L native=test1");
                 }
             "#,
         )
@@ -4207,7 +4244,7 @@ fn deterministic_rustc_dependency_flags() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rustc-flags=-L native=test2");
+                    println!("cargo::rustc-flags=-L native=test2");
                 }
             "#,
         )
@@ -4228,7 +4265,7 @@ fn deterministic_rustc_dependency_flags() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rustc-flags=-L native=test3");
+                    println!("cargo::rustc-flags=-L native=test3");
                 }
             "#,
         )
@@ -4249,7 +4286,7 @@ fn deterministic_rustc_dependency_flags() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rustc-flags=-L native=test4");
+                    println!("cargo::rustc-flags=-L native=test4");
                 }
             "#,
         )
@@ -4344,7 +4381,7 @@ versions that meet the requirements `*` are: 0.5.0
 
 the package `a` links to the native library `a`, but it conflicts with a previous package which links to `a` as well:
 package `foo v0.5.0 ([..])`
-Only one package in the dependency graph may specify the same links value. This helps ensure that only one copy of a native library is linked in the final binary. Try to adjust your dependencies so that only one package uses the links ='a' value. For more information, see https://doc.rust-lang.org/cargo/reference/resolver.html#links.
+Only one package in the dependency graph may specify the same links value. This helps ensure that only one copy of a native library is linked in the final binary. Try to adjust your dependencies so that only one package uses the `links = \"a\"` value. For more information, see https://doc.rust-lang.org/cargo/reference/resolver.html#links.
 
 failed to select a version for `a` which could resolve this conflict
 ").run();
@@ -4420,13 +4457,13 @@ fn _rename_with_link_search_path(cross: bool) {
                     // handle windows, like below
                     drop(fs::copy(root.join("foo.dll.lib"), dst_dir.join("foo.dll.lib")));
 
-                    println!("cargo:rerun-if-changed=build.rs");
+                    println!("cargo::rerun-if-changed=build.rs");
                     if cfg!(target_env = "msvc") {
-                        println!("cargo:rustc-link-lib=foo.dll");
+                        println!("cargo::rustc-link-lib=foo.dll");
                     } else {
-                        println!("cargo:rustc-link-lib=foo");
+                        println!("cargo::rustc-link-lib=foo");
                     }
-                    println!("cargo:rustc-link-search=all={}",
+                    println!("cargo::rustc-link-search=all={}",
                              dst.parent().unwrap().display());
                 }
             "#,
@@ -4539,10 +4576,10 @@ fn optional_build_script_dep() {
 
                 fn main() {
                     #[cfg(feature = "bar")] {
-                        println!("cargo:rustc-env=FOO={}", bar::bar());
+                        println!("cargo::rustc-env=FOO={}", bar::bar());
                         return
                     }
-                    println!("cargo:rustc-env=FOO=0");
+                    println!("cargo::rustc-env=FOO=0");
                 }
             "#,
         )
@@ -4643,7 +4680,7 @@ fn using_rerun_if_changed_does_not_rebuild() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rerun-if-changed=build.rs");
+                    println!("cargo::rerun-if-changed=build.rs");
                 }
             "#,
         )
@@ -4681,7 +4718,7 @@ fn links_interrupted_can_restart() {
             "build.rs",
             r#"
             fn main() {
-                println!("cargo:rerun-if-env-changed=SOMEVAR");
+                println!("cargo::rerun-if-env-changed=SOMEVAR");
             }
             "#,
         )
@@ -4710,7 +4747,7 @@ fn links_interrupted_can_restart() {
             r#"
             use std::env;
             fn main() {
-                println!("cargo:rebuild-if-changed=build.rs");
+                println!("cargo::metadata=rebuild-if-changed=build.rs");
                 if std::path::Path::new("abort").exists() {
                     panic!("Crash!");
                 }
@@ -4788,7 +4825,7 @@ fn rerun_if_directory() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rerun-if-changed=somedir");
+                    println!("cargo::rerun-if-changed=somedir");
                 }
             "#,
         )
@@ -4907,7 +4944,7 @@ fn rerun_if_published_directory() {
             r#"
                 fn main() {
                     // Changing to mylib/balrog.c will not trigger a rebuild
-                    println!("cargo:rerun-if-changed=mylib");
+                    println!("cargo::rerun-if-changed=mylib");
                 }
             "#,
         )
@@ -4952,7 +4989,7 @@ fn rerun_if_published_directory() {
             "build.rs",
             r#"
                     fn main() {
-                        println!("cargo:rerun-if-changed=mylib");
+                        println!("cargo::rerun-if-changed=mylib");
                     }
                 "#,
         )
@@ -5011,7 +5048,7 @@ fn test_with_dep_metadata() {
             "bar/build.rs",
             r#"
                 fn main() {
-                    println!("cargo:foo=bar");
+                    println!("cargo::metadata=foo=bar");
                 }
             "#,
         )
@@ -5074,8 +5111,8 @@ fn duplicate_script_with_extra_env() {
             "foo/build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rustc-env=CRATE_TARGET={}", std::env::var("TARGET").unwrap());
-                    println!("cargo:rustc-cfg=mycfg=\"{}\"", std::env::var("TARGET").unwrap());
+                    println!("cargo::rustc-env=CRATE_TARGET={}", std::env::var("TARGET").unwrap());
+                    println!("cargo::rustc-cfg=mycfg=\"{}\"", std::env::var("TARGET").unwrap());
                 }
             "#,
         )
@@ -5120,7 +5157,7 @@ fn wrong_output() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:example");
+                    println!("cargo::example");
                 }
             "#,
         )
@@ -5131,8 +5168,8 @@ fn wrong_output() {
         .with_stderr(
             "\
 [COMPILING] foo [..]
-error: invalid output in build script of `foo v0.0.1 ([ROOT]/foo)`: `cargo:example`
-Expected a line with `cargo:key=value` with an `=` character, but none was found.
+error: invalid output in build script of `foo v0.0.1 ([ROOT]/foo)`: `cargo::example`
+Expected a line with `cargo::KEY=VALUE` with an `=` character, but none was found.
 See https://doc.rust-lang.org/cargo/reference/build-scripts.html#outputs-of-the-build-script \
 for more information about build script outputs.
 ",
@@ -5164,4 +5201,194 @@ fn custom_build_closes_stdin() {
         )
         .build();
     p.cargo("build").run();
+}
+
+#[cargo_test]
+fn test_old_syntax() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+                authors = []
+                build = "build.rs"
+            "#,
+        )
+        .file(
+            "src/main.rs",
+            r#"
+                const FOO: &'static str = env!("FOO");
+                fn main() {
+                    println!("{}", FOO);
+                }
+            "#,
+        )
+        .file(
+            "build.rs",
+            r#"fn main() {
+                println!("cargo:rustc-env=FOO=foo");
+                println!("cargo:foo=foo");
+            }"#,
+        )
+        .build();
+    p.cargo("build -v").run();
+    p.cargo("run -v").with_stdout("foo\n").run();
+}
+
+#[cargo_test]
+fn test_invalid_old_syntax() {
+    // Unexpected metadata value.
+    let p = project()
+        .file("src/lib.rs", "")
+        .file(
+            "build.rs",
+            r#"
+                fn main() {
+                    println!("cargo:foo");
+                }
+            "#,
+        )
+        .build();
+    p.cargo("build")
+        .with_status(101)
+        .with_stderr(
+            "\
+[COMPILING] foo [..]
+error: invalid output in build script of `foo v0.0.1 ([ROOT]/foo)`: `cargo:foo`
+Expected a line with `cargo:KEY=VALUE` with an `=` character, but none was found.
+See https://doc.rust-lang.org/cargo/reference/build-scripts.html#outputs-of-the-build-script \
+for more information about build script outputs.
+",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn test_invalid_new_syntax() {
+    // Unexpected metadata value.
+    let p = project()
+        .file("src/lib.rs", "")
+        .file(
+            "build.rs",
+            r#"
+                fn main() {
+                    println!("cargo::metadata=foo");
+                }
+            "#,
+        )
+        .build();
+
+    p.cargo("build")
+        .with_status(101)
+        .with_stderr(
+            "\
+[COMPILING] foo [..]
+error: invalid output in build script of `foo v0.0.1 ([ROOT]/foo)`: `cargo::metadata=foo`
+Expected a line with `cargo::metadata=KEY=VALUE` with an `=` character, but none was found.
+See https://doc.rust-lang.org/cargo/reference/build-scripts.html#outputs-of-the-build-script \
+for more information about build script outputs.
+",
+        )
+        .run();
+    // `cargo::` can not be used with the unknown key.
+    let p = project()
+        .file("src/lib.rs", "")
+        .file(
+            "build.rs",
+            r#"
+                fn main() {
+                    println!("cargo::foo=bar");
+                }
+            "#,
+        )
+        .build();
+
+    p.cargo("build")
+        .with_status(101)
+        .with_stderr(
+            "\
+[COMPILING] foo [..]
+error: invalid output in build script of `foo v0.0.1 ([ROOT]/foo)`: `cargo::foo=bar`
+Unknown key: `foo`.
+See https://doc.rust-lang.org/cargo/reference/build-scripts.html#outputs-of-the-build-script \
+for more information about build script outputs.
+",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn test_new_syntax_with_old_msrv() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.5.0"
+                authors = []
+                build = "build.rs"
+                rust-version = "1.60.0"
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .file(
+            "build.rs",
+            r#"
+                fn main() {
+                    println!("cargo::metadata=foo=bar");
+                }
+            "#,
+        )
+        .build();
+
+    p.cargo("build")
+        .with_status(101)
+        .with_stderr_contains(
+            "\
+[COMPILING] foo [..]
+error: the `cargo::` syntax for build script output instructions was added in Rust 1.77.0, \
+but the minimum supported Rust version of `foo v0.5.0 ([ROOT]/foo)` is 1.60.0.
+See https://doc.rust-lang.org/cargo/reference/build-scripts.html#outputs-of-the-build-script \
+for more information about build script outputs.
+",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn test_old_syntax_with_old_msrv() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+                authors = []
+                build = "build.rs"
+                rust-version = "1.60.0"
+            "#,
+        )
+        .file(
+            "src/main.rs",
+            r#"
+                const FOO: &'static str = env!("FOO");
+                fn main() {
+                    println!("{}", FOO);
+                }
+            "#,
+        )
+        .file(
+            "build.rs",
+            r#"fn main() {
+                println!("cargo:rustc-env=FOO=foo");
+                println!("cargo:foo=foo");
+            }"#,
+        )
+        .build();
+    p.cargo("build -v").run();
+    p.cargo("run -v").with_stdout("foo\n").run();
 }

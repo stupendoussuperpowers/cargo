@@ -30,10 +30,11 @@ DESCRIPTION
        o  $HOME/.cargo
 
        There are multiple sources from which a crate can be installed. The
-       default location is crates.io but the --git, --path, and --registry
-       flags can change this source. If the source contains more than one
-       package (such as crates.io or a git repository with multiple crates) the
-       crate argument is required to indicate which crate should be installed.
+       default source location is crates.io but the --git, --path, and
+       --registry flags can change this source. If the source contains more
+       than one package (such as crates.io or a git repository with multiple
+       crates) the crate argument is required to indicate which crate should be
+       installed.
 
        Crates from crates.io can optionally specify the version they wish to
        install via the --version flags, and similarly packages from git
@@ -94,7 +95,7 @@ OPTIONS
    Install Options
        --vers version, --version version
            Specify a version to install. This may be a version requirement
-           <https://doc.rust-lang.org/cargo/reference/specifying-dependencies.md>,
+           <https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html>,
            like ~1.2, to have Cargo select the newest version from the given
            requirement. If the version does not have a requirement operator
            (such as ^ or ~), then it must be in the form MAJOR.MINOR.PATCH, and
@@ -114,7 +115,7 @@ OPTIONS
            Specific commit to use when installing from git.
 
        --path path
-           Filesystem path to local crate to install.
+           Filesystem path to local crate to install from.
 
        --list
            List all installed packages and their versions.
@@ -212,7 +213,7 @@ OPTIONS
            the --profile option for choosing a specific profile by name.
 
        --profile name
-           Install with the given profile. See the the reference
+           Install with the given profile. See the reference
            <https://doc.rust-lang.org/cargo/reference/profiles.html> for more
            details on profiles.
 
@@ -280,7 +281,13 @@ OPTIONS
        --keep-going
            Build as many crates in the dependency graph as possible, rather
            than aborting the build on the first one that fails to build.
-           Unstable, requires -Zunstable-options.
+
+           For example if the current package depends on dependencies fails and
+           works, one of which fails to build, cargo install -j1 may or may not
+           build the one that succeeds (depending on which one of the two
+           builds Cargo picked to run first), whereas cargo install -j1
+           --keep-going would definitely run both builds, even if the one run
+           first fails.
 
    Display Options
        -v, --verbose

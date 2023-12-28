@@ -1,4 +1,4 @@
-## External tools
+# External tools
 
 One of the goals of Cargo is simple integration with third-party tools, like
 IDEs and other build systems. To make integration easier, Cargo has several
@@ -13,7 +13,7 @@ facilities:
 * support for custom subcommands.
 
 
-### Information about package structure
+## Information about package structure
 
 You can use [`cargo metadata`] command to get information about package
 structure and dependencies. See the [`cargo metadata`] documentation
@@ -29,7 +29,7 @@ output.
 [cargo_metadata]: https://crates.io/crates/cargo_metadata
 [`cargo metadata`]: ../commands/cargo-metadata.md
 
-### JSON messages
+## JSON messages
 
 When passing `--message-format=json`, Cargo will output the following
 information during the build:
@@ -54,7 +54,7 @@ messages.
 [build command documentation]: ../commands/cargo-build.md
 [cargo_metadata]: https://crates.io/crates/cargo_metadata
 
-#### Compiler messages
+### Compiler messages
 
 The "compiler-message" message includes output from the compiler, such as
 warnings and errors. See the [rustc JSON chapter](../../rustc/json.md) for
@@ -125,7 +125,7 @@ structure:
 }
 ```
 
-#### Artifact messages
+### Artifact messages
 
 For every compilation step, a "compiler-artifact" message is emitted with the
 following structure:
@@ -192,7 +192,7 @@ following structure:
 
 ```
 
-#### Build script output
+### Build script output
 
 The "build-script-executed" message includes the parsed output of a build
 script. Note that this is emitted even if the build script is not run; it will
@@ -205,22 +205,22 @@ may be found in [the chapter on build scripts](build-scripts.md).
     "reason": "build-script-executed",
     /* The Package ID, a unique identifier for referring to the package. */
     "package_id": "my-package 0.1.0 (path+file:///path/to/my-package)",
-    /* Array of libraries to link, as indicated by the `cargo:rustc-link-lib`
+    /* Array of libraries to link, as indicated by the `cargo::rustc-link-lib`
        instruction. Note that this may include a "KIND=" prefix in the string
        where KIND is the library kind.
     */
     "linked_libs": ["foo", "static=bar"],
     /* Array of paths to include in the library search path, as indicated by
-       the `cargo:rustc-link-search` instruction. Note that this may include a
+       the `cargo::rustc-link-search` instruction. Note that this may include a
        "KIND=" prefix in the string where KIND is the library kind.
     */
     "linked_paths": ["/some/path", "native=/another/path"],
-    /* Array of cfg values to enable, as indicated by the `cargo:rustc-cfg`
+    /* Array of cfg values to enable, as indicated by the `cargo::rustc-cfg`
        instruction.
     */
     "cfgs": ["cfg1", "cfg2=\"string\""],
     /* Array of [KEY, VALUE] arrays of environment variables to set, as
-       indicated by the `cargo:rustc-env` instruction.
+       indicated by the `cargo::rustc-env` instruction.
     */
     "env": [
         ["SOME_KEY", "some value"],
@@ -233,7 +233,7 @@ may be found in [the chapter on build scripts](build-scripts.md).
 }
 ```
 
-#### Build finished
+### Build finished
 
 The "build-finished" message is emitted at the end of the build.
 
@@ -257,13 +257,17 @@ executed by `cargo run`).
 > so additional test-specific JSON messages may begin arriving after the
 > "build-finished" message if that is enabled.
 
-### Custom subcommands
+## Custom subcommands
 
 Cargo is designed to be extensible with new subcommands without having to modify
 Cargo itself. This is achieved by translating a cargo invocation of the form
 cargo `(?<command>[^ ]+)` into an invocation of an external tool
 `cargo-${command}`. The external tool must be present in one of the user's
 `$PATH` directories.
+
+> **Note**: Cargo defaults to prioritizing external tools in `$CARGO_HOME/bin`
+> over `$PATH`. Users can override this precedence by adding `$CARGO_HOME/bin`
+> to `$PATH`.
 
 When Cargo invokes a custom subcommand, the first argument to the subcommand
 will be the filename of the custom subcommand, as usual. The second argument

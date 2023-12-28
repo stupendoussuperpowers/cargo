@@ -494,7 +494,7 @@ fn build_script_runtime_features() {
                 if is_set("CARGO_FEATURE_BUILD") {
                     res |= 4;
                 }
-                println!("cargo:rustc-cfg=RunCustomBuild=\"{}\"", res);
+                println!("cargo::rustc-cfg=RunCustomBuild=\"{}\"", res);
 
                 let mut res = 0;
                 if cfg!(feature = "normal") {
@@ -506,7 +506,7 @@ fn build_script_runtime_features() {
                 if cfg!(feature = "build") {
                     res |= 4;
                 }
-                println!("cargo:rustc-cfg=CustomBuild=\"{}\"", res);
+                println!("cargo::rustc-cfg=CustomBuild=\"{}\"", res);
             }
             "#,
         )
@@ -562,7 +562,7 @@ fn build_script_runtime_features() {
             r#"
             fn main() {
                 assert_eq!(common::foo(), common::build_time());
-                println!("cargo:rustc-cfg=from_build=\"{}\"", common::foo());
+                println!("cargo::rustc-cfg=from_build=\"{}\"", common::foo());
             }
             "#,
         )
@@ -1431,9 +1431,10 @@ fn edition_2021_workspace_member() {
     p.cargo("check")
         .with_stderr(
             "\
-warning: some crates are on edition 2021 which defaults to `resolver = \"2\"`, but virtual workspaces default to `resolver = \"1\"`
+warning: virtual workspace defaulting to `resolver = \"1\"` despite one or more workspace members being on edition 2021 which implies `resolver = \"2\"`
 note: to keep the current resolver, specify `workspace.resolver = \"1\"` in the workspace root's manifest
 note: to use the edition 2021 resolver, specify `workspace.resolver = \"2\"` in the workspace root's manifest
+note: for more details see https://doc.rust-lang.org/cargo/reference/resolver.html#resolver-versions
 [CHECKING] a v0.1.0 [..]
 [FINISHED] [..]
 ",
@@ -1791,8 +1792,8 @@ fn shared_dep_same_but_dependencies() {
             "subdep/src/lib.rs",
             r#"
                 pub fn feat_func() {
-                    #[cfg(feature = "feat")] println!("cargo:warning=feat: enabled");
-                    #[cfg(not(feature = "feat"))] println!("cargo:warning=feat: not enabled");
+                    #[cfg(feature = "feat")] println!("cargo::warning=feat: enabled");
+                    #[cfg(not(feature = "feat"))] println!("cargo::warning=feat: not enabled");
                 }
             "#,
         )
@@ -1806,13 +1807,13 @@ fn shared_dep_same_but_dependencies() {
 [COMPILING] dep [..]
 [COMPILING] bin2 [..]
 [COMPILING] bin1 [..]
-warning: feat: enabled
+warning: bin2@0.1.0: feat: enabled
 [FINISHED] [..]
 ",
         )
         .run();
     p.process(p.bin("bin1"))
-        .with_stdout("cargo:warning=feat: not enabled")
+        .with_stdout("cargo::warning=feat: not enabled")
         .run();
 
     // Make sure everything stays cached.
@@ -1822,7 +1823,7 @@ warning: feat: enabled
 [FRESH] subdep [..]
 [FRESH] dep [..]
 [FRESH] bin1 [..]
-warning: feat: enabled
+warning: bin2@0.1.0: feat: enabled
 [FRESH] bin2 [..]
 [FINISHED] [..]
 ",
@@ -1954,6 +1955,7 @@ fn doc_optional() {
 [CHECKING] bar v1.0.0
 [DOCUMENTING] foo v0.1.0 [..]
 [FINISHED] [..]
+[GENERATED] [CWD]/target/doc/foo/index.html
 ",
         )
         .run();

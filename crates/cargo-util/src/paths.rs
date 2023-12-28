@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use filetime::FileTime;
 use std::env;
 use std::ffi::{OsStr, OsString};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File, Metadata, OpenOptions};
 use std::io;
 use std::io::prelude::*;
 use std::iter;
@@ -136,6 +136,24 @@ pub fn resolve_executable(exec: &Path) -> Result<PathBuf> {
     }
 }
 
+/// Returns metadata for a file (follows symlinks).
+///
+/// Equivalent to [`std::fs::metadata`] with better error messages.
+pub fn metadata<P: AsRef<Path>>(path: P) -> Result<Metadata> {
+    let path = path.as_ref();
+    std::fs::metadata(path)
+        .with_context(|| format!("failed to load metadata for path `{}`", path.display()))
+}
+
+/// Returns metadata for a file without following symlinks.
+///
+/// Equivalent to [`std::fs::metadata`] with better error messages.
+pub fn symlink_metadata<P: AsRef<Path>>(path: P) -> Result<Metadata> {
+    let path = path.as_ref();
+    std::fs::symlink_metadata(path)
+        .with_context(|| format!("failed to load metadata for path `{}`", path.display()))
+}
+
 /// Reads a file to a string.
 ///
 /// Equivalent to [`std::fs::read_to_string`] with better error messages.
@@ -160,6 +178,19 @@ pub fn write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> Result<()>
     let path = path.as_ref();
     fs::write(path, contents.as_ref())
         .with_context(|| format!("failed to write `{}`", path.display()))
+}
+
+/// Writes a file to disk atomically.
+///
+/// write_atomic uses tempfile::persist to accomplish atomic writes.
+pub fn write_atomic<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> Result<()> {
+    let path = path.as_ref();
+    let mut tmp = TempFileBuilder::new()
+        .prefix(path.file_name().unwrap())
+        .tempfile_in(path.parent().unwrap())?;
+    tmp.write_all(contents.as_ref())?;
+    tmp.persist(path)?;
+    Ok(())
 }
 
 /// Equivalent to [`write()`], but does not write anything if the file contents
@@ -216,16 +247,14 @@ pub fn open<P: AsRef<Path>>(path: P) -> Result<File> {
 
 /// Returns the last modification time of a file.
 pub fn mtime(path: &Path) -> Result<FileTime> {
-    let meta =
-        fs::metadata(path).with_context(|| format!("failed to stat `{}`", path.display()))?;
+    let meta = metadata(path)?;
     Ok(FileTime::from_last_modification_time(&meta))
 }
 
 /// Returns the maximum mtime of the given path, recursing into
 /// subdirectories, and following symlinks.
 pub fn mtime_recursive(path: &Path) -> Result<FileTime> {
-    let meta =
-        fs::metadata(path).with_context(|| format!("failed to stat `{}`", path.display()))?;
+    let meta = metadata(path)?;
     if !meta.is_dir() {
         return Ok(FileTime::from_last_modification_time(&meta));
     }
@@ -237,7 +266,7 @@ pub fn mtime_recursive(path: &Path) -> Result<FileTime> {
             Err(e) => {
                 // Ignore errors while walking. If Cargo can't access it, the
                 // build script probably can't access it, either.
-                log::debug!("failed to determine mtime while walking directory: {}", e);
+                tracing::debug!("failed to determine mtime while walking directory: {}", e);
                 None
             }
         })
@@ -252,7 +281,7 @@ pub fn mtime_recursive(path: &Path) -> Result<FileTime> {
                         // I'm not sure when this is really possible (maybe a
                         // race with unlinking?). Regardless, if Cargo can't
                         // read it, the build script probably can't either.
-                        log::debug!(
+                        tracing::debug!(
                             "failed to determine mtime while fetching symlink metadata of {}: {}",
                             e.path().display(),
                             err
@@ -271,7 +300,7 @@ pub fn mtime_recursive(path: &Path) -> Result<FileTime> {
                         // Can't access the symlink target. If Cargo can't
                         // access it, the build script probably can't access
                         // it either.
-                        log::debug!(
+                        tracing::debug!(
                             "failed to determine mtime of symlink target for {}: {}",
                             e.path().display(),
                             err
@@ -286,7 +315,7 @@ pub fn mtime_recursive(path: &Path) -> Result<FileTime> {
                         // I'm not sure when this is really possible (maybe a
                         // race with unlinking?). Regardless, if Cargo can't
                         // read it, the build script probably can't either.
-                        log::debug!(
+                        tracing::debug!(
                             "failed to determine mtime while fetching metadata of {}: {}",
                             e.path().display(),
                             err
@@ -314,7 +343,7 @@ pub fn set_invocation_time(path: &Path) -> Result<FileTime> {
         "This file has an mtime of when this was started.",
     )?;
     let ft = mtime(&timestamp)?;
-    log::debug!("invocation time for {:?} is {}", path, ft);
+    tracing::debug!("invocation time for {:?} is {}", path, ft);
     Ok(ft)
 }
 
@@ -432,10 +461,7 @@ pub fn remove_dir_all<P: AsRef<Path>>(p: P) -> Result<()> {
 }
 
 fn _remove_dir_all(p: &Path) -> Result<()> {
-    if p.symlink_metadata()
-        .with_context(|| format!("could not get metadata for `{}` to remove", p.display()))?
-        .is_symlink()
-    {
+    if symlink_metadata(p)?.is_symlink() {
         return remove_file(p);
     }
     let entries = p
@@ -508,7 +534,7 @@ pub fn link_or_copy(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<()> 
 }
 
 fn _link_or_copy(src: &Path, dst: &Path) -> Result<()> {
-    log::debug!("linking {} to {}", src.display(), dst.display());
+    tracing::debug!("linking {} to {}", src.display(), dst.display());
     if same_file::is_same_file(src, dst).unwrap_or(false) {
         return Ok(());
     }
@@ -567,7 +593,7 @@ fn _link_or_copy(src: &Path, dst: &Path) -> Result<()> {
     };
     link_result
         .or_else(|err| {
-            log::debug!("link failed {}. falling back to fs::copy", err);
+            tracing::debug!("link failed {}. falling back to fs::copy", err);
             fs::copy(src, dst).map(|_| ())
         })
         .with_context(|| {
@@ -598,8 +624,8 @@ pub fn copy<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> Result<u64> {
 pub fn set_file_time_no_err<P: AsRef<Path>>(path: P, time: FileTime) {
     let path = path.as_ref();
     match filetime::set_file_times(path, time, time) {
-        Ok(()) => log::debug!("set file mtime {} to {}", path.display(), time),
-        Err(e) => log::warn!(
+        Ok(()) => tracing::debug!("set file mtime {} to {}", path.display(), time),
+        Err(e) => tracing::warn!(
             "could not set mtime of {} to {}: {:?}",
             path.display(),
             time,
@@ -621,7 +647,7 @@ pub fn strip_prefix_canonical<P: AsRef<Path>>(
     let safe_canonicalize = |path: &Path| match path.canonicalize() {
         Ok(p) => p,
         Err(e) => {
-            log::warn!("cannot canonicalize {:?}: {:?}", path, e);
+            tracing::warn!("cannot canonicalize {:?}: {:?}", path, e);
             path.to_path_buf()
         }
     };
@@ -668,7 +694,8 @@ pub fn create_dir_all_excluded_from_backups_atomic(p: impl AsRef<Path>) -> Resul
     // we can infer from it's another cargo process doing work.
     if let Err(e) = fs::rename(tempdir.path(), path) {
         if !path.exists() {
-            return Err(anyhow::Error::from(e));
+            return Err(anyhow::Error::from(e))
+                .with_context(|| format!("failed to create directory `{}`", path.display()));
         }
     }
     Ok(())
@@ -692,14 +719,17 @@ pub fn exclude_from_backups_and_indexing(p: impl AsRef<Path>) {
 /// * CACHEDIR.TAG files supported by various tools in a platform-independent way
 fn exclude_from_backups(path: &Path) {
     exclude_from_time_machine(path);
-    let _ = std::fs::write(
-        path.join("CACHEDIR.TAG"),
-        "Signature: 8a477f597d28d172789f06886806bc55
+    let file = path.join("CACHEDIR.TAG");
+    if !file.exists() {
+        let _ = std::fs::write(
+            file,
+            "Signature: 8a477f597d28d172789f06886806bc55
 # This file is a cache directory tag created by cargo.
 # For information about cache directory tags see https://bford.info/cachedir/
 ",
-    );
-    // Similarly to exclude_from_time_machine() we ignore errors here as it's an optional feature.
+        );
+        // Similarly to exclude_from_time_machine() we ignore errors here as it's an optional feature.
+    }
 }
 
 /// Marks the directory as excluded from content indexing.
@@ -762,6 +792,29 @@ fn exclude_from_time_machine(path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::join_paths;
+    use super::write;
+    use super::write_atomic;
+
+    #[test]
+    fn write_works() {
+        let original_contents = "[dependencies]\nfoo = 0.1.0";
+
+        let tmpdir = tempfile::tempdir().unwrap();
+        let path = tmpdir.path().join("Cargo.toml");
+        write(&path, original_contents).unwrap();
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(contents, original_contents);
+    }
+    #[test]
+    fn write_atomic_works() {
+        let original_contents = "[dependencies]\nfoo = 0.1.0";
+
+        let tmpdir = tempfile::tempdir().unwrap();
+        let path = tmpdir.path().join("Cargo.toml");
+        write_atomic(&path, original_contents).unwrap();
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(contents, original_contents);
+    }
 
     #[test]
     fn join_paths_lists_paths_on_error() {

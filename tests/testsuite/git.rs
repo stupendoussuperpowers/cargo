@@ -591,12 +591,12 @@ fn recompilation() {
         .run();
 
     // Don't recompile the second time
-    p.cargo("check").with_stdout("").run();
+    p.cargo("check").with_stderr("[FINISHED] [..]").run();
 
     // Modify a file manually, shouldn't trigger a recompile
     git_project.change_file("src/bar.rs", r#"pub fn bar() { println!("hello!"); }"#);
 
-    p.cargo("check").with_stdout("").run();
+    p.cargo("check").with_stderr("[FINISHED] [..]").run();
 
     p.cargo("update")
         .with_stderr(&format!(
@@ -605,7 +605,7 @@ fn recompilation() {
         ))
         .run();
 
-    p.cargo("check").with_stdout("").run();
+    p.cargo("check").with_stderr("[FINISHED] [..]").run();
 
     // Commit the changes and make sure we don't trigger a recompile because the
     // lock file says not to change
@@ -614,7 +614,7 @@ fn recompilation() {
     git::commit(&repo);
 
     println!("compile after commit");
-    p.cargo("check").with_stdout("").run();
+    p.cargo("check").with_stderr("[FINISHED] [..]").run();
     p.root().move_into_the_past();
 
     // Update the dependency and carry on!
@@ -638,7 +638,7 @@ fn recompilation() {
         .run();
 
     // Make sure clean only cleans one dep
-    p.cargo("clean -p foo").with_stdout("").run();
+    p.cargo("clean -p foo").with_stderr("[REMOVED] [..]").run();
     p.cargo("check")
         .with_stderr(
             "[CHECKING] foo v0.5.0 ([CWD])\n\
@@ -742,11 +742,18 @@ fn update_with_shared_deps() {
 
     // By default, not transitive updates
     println!("dep1 update");
-    p.cargo("update -p dep1").with_stdout("").run();
+    p.cargo("update dep1")
+        .with_stderr(
+            "\
+[UPDATING] git repository [..]
+[UPDATING] bar v0.5.0 [..]
+",
+        )
+        .run();
 
     // Don't do anything bad on a weird --precise argument
     println!("bar bad precise update");
-    p.cargo("update -p bar --precise 0.1.2")
+    p.cargo("update bar --precise 0.1.2")
         .with_status(101)
         .with_stderr(
             "\
@@ -764,14 +771,14 @@ Caused by:
     // Specifying a precise rev to the old rev shouldn't actually update
     // anything because we already have the rev in the db.
     println!("bar precise update");
-    p.cargo("update -p bar --precise")
+    p.cargo("update bar --precise")
         .arg(&old_head.to_string())
-        .with_stdout("")
+        .with_stderr("[UPDATING] bar v0.5.0 [..]")
         .run();
 
-    // Updating aggressively should, however, update the repo.
-    println!("dep1 aggressive update");
-    p.cargo("update -p dep1 --aggressive")
+    // Updating recursively should, however, update the repo.
+    println!("dep1 recursive update");
+    p.cargo("update dep1 --recursive")
         .with_stderr(&format!(
             "[UPDATING] git repository `{}`\n\
              [UPDATING] bar v0.5.0 ([..]) -> #[..]\n\
@@ -795,7 +802,7 @@ Caused by:
         .run();
 
     // We should be able to update transitive deps
-    p.cargo("update -p bar")
+    p.cargo("update bar")
         .with_stderr(&format!(
             "[UPDATING] git repository `{}`",
             git_project.url()
@@ -1183,7 +1190,7 @@ fn two_deps_only_update_one() {
     let oid = git::commit(&repo);
     println!("dep1 head sha: {}", oid_to_short_sha(oid));
 
-    p.cargo("update -p dep1")
+    p.cargo("update dep1")
         .with_stderr(&format!(
             "[UPDATING] git repository `{}`\n\
              [UPDATING] dep1 v0.5.0 ([..]) -> #[..]\n\
@@ -1496,12 +1503,12 @@ fn git_build_cmd_freshness() {
 
     // Smoke test to make sure it doesn't compile again
     println!("first pass");
-    foo.cargo("check").with_stdout("").run();
+    foo.cargo("check").with_stderr("[FINISHED] [..]").run();
 
     // Modify an ignored file and make sure we don't rebuild
     println!("second pass");
     foo.change_file("src/bar.rs", "");
-    foo.cargo("check").with_stdout("").run();
+    foo.cargo("check").with_stderr("[FINISHED] [..]").run();
 }
 
 #[cargo_test]
@@ -1636,7 +1643,7 @@ fn git_repo_changing_no_rebuild() {
 
     // And now for the real test! Make sure that p1 doesn't get rebuilt
     // even though the git repo has changed.
-    p1.cargo("check").with_stdout("").run();
+    p1.cargo("check").with_stderr("[FINISHED] [..]").run();
 }
 
 #[cargo_test]
@@ -1741,7 +1748,7 @@ fn fetch_downloads() {
         ))
         .run();
 
-    p.cargo("fetch").with_stdout("").run();
+    p.cargo("fetch").with_stderr("").run();
 }
 
 #[cargo_test]
@@ -1786,7 +1793,7 @@ fn fetch_downloads_with_git2_first_then_with_gitoxide_and_vice_versa() {
         .run();
 
     Package::new("bar", "1.0.0").publish(); // trigger a crates-index change.
-    p.cargo("fetch").with_stdout("").run();
+    p.cargo("fetch").with_stderr("").run();
 }
 
 #[cargo_test]
@@ -1881,14 +1888,14 @@ fn update_ambiguous() {
         .build();
 
     p.cargo("generate-lockfile").run();
-    p.cargo("update -p bar")
+    p.cargo("update bar")
         .with_status(101)
         .with_stderr(
             "\
 [ERROR] There are multiple `bar` packages in your project, and the specification `bar` \
 is ambiguous.
-Please re-run this command with `-p <spec>` where `<spec>` is one of the \
-following:
+Please re-run this command with one of the \
+following specifications:
   bar@0.[..].0
   bar@0.[..].0
 ",
@@ -1928,7 +1935,7 @@ fn update_one_dep_in_repo_with_many_deps() {
         .build();
 
     p.cargo("generate-lockfile").run();
-    p.cargo("update -p bar")
+    p.cargo("update bar")
         .with_stderr(&format!("[UPDATING] git repository `{}`", bar.url()))
         .run();
 }
@@ -2091,7 +2098,7 @@ fn update_one_source_updates_all_packages_in_that_git_source() {
     git::add(&repo);
     git::commit(&repo);
 
-    p.cargo("update -p dep").run();
+    p.cargo("update dep").run();
     let lockfile = p.read_lockfile();
     assert!(
         !lockfile.contains(&rev1.to_string()),
@@ -2576,9 +2583,6 @@ Caused by:
 
 Caused by:
   failed to parse manifest at `[..]`
-
-Caused by:
-  could not parse input as TOML
 
 Caused by:
   TOML parse error at line 8, column 21

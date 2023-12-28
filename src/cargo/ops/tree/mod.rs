@@ -4,7 +4,7 @@ use self::format::Pattern;
 use crate::core::compiler::{CompileKind, RustcTargetData};
 use crate::core::dependency::DepKind;
 use crate::core::resolver::{features::CliFeatures, ForceAllTargets, HasDevUnits};
-use crate::core::{Package, PackageId, PackageIdSpec, Workspace};
+use crate::core::{Package, PackageId, PackageIdSpec, PackageIdSpecQuery, Workspace};
 use crate::ops::{self, Packages};
 use crate::util::{CargoResult, Config};
 use crate::{drop_print, drop_println};
@@ -135,7 +135,7 @@ pub fn build_and_print(ws: &Workspace<'_>, opts: &TreeOptions) -> CargoResult<()
     // TODO: Target::All is broken with -Zfeatures=itarget. To handle that properly,
     // `FeatureResolver` will need to be taught what "all" means.
     let requested_kinds = CompileKind::from_requested_targets(ws.config(), &requested_targets)?;
-    let target_data = RustcTargetData::new(ws, &requested_kinds)?;
+    let mut target_data = RustcTargetData::new(ws, &requested_kinds)?;
     let specs = opts.packages.to_package_id_specs(ws)?;
     let has_dev = if opts
         .edge_kinds
@@ -150,14 +150,16 @@ pub fn build_and_print(ws: &Workspace<'_>, opts: &TreeOptions) -> CargoResult<()
     } else {
         ForceAllTargets::No
     };
+    let max_rust_version = ws.rust_version();
     let ws_resolve = ops::resolve_ws_with_opts(
         ws,
-        &target_data,
+        &mut target_data,
         &requested_kinds,
         &opts.cli_features,
         &specs,
         has_dev,
         force_all,
+        max_rust_version,
     )?;
 
     let package_map: HashMap<PackageId, &Package> = ws_resolve
@@ -184,7 +186,7 @@ pub fn build_and_print(ws: &Workspace<'_>, opts: &TreeOptions) -> CargoResult<()
         opts.invert
             .iter()
             .map(|p| PackageIdSpec::parse(p))
-            .collect::<CargoResult<Vec<PackageIdSpec>>>()?
+            .collect::<Result<Vec<PackageIdSpec>, _>>()?
     };
     let root_ids = ws_resolve.targeted_resolve.specs_to_ids(&root_specs)?;
     let root_indexes = graph.indexes_from_ids(&root_ids);
@@ -205,7 +207,7 @@ pub fn build_and_print(ws: &Workspace<'_>, opts: &TreeOptions) -> CargoResult<()
     let pkgs_to_prune = opts
         .pkgs_to_prune
         .iter()
-        .map(|p| PackageIdSpec::parse(p))
+        .map(|p| PackageIdSpec::parse(p).map_err(Into::into))
         .map(|r| {
             // Provide an error message if pkgid is not within the resolved
             // dependencies graph.

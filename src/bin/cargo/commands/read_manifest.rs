@@ -2,14 +2,14 @@ use crate::command_prelude::*;
 
 pub fn cli() -> Command {
     subcommand("read-manifest")
-        .about(
+        .about(color_print::cstr!(
             "\
 Print a JSON representation of a Cargo.toml manifest.
 
-Deprecated, use `cargo metadata --no-deps` instead.\
-",
-        )
-        .arg_quiet()
+Deprecated, use `<cyan,bold>cargo metadata --no-deps</>` instead.\
+"
+        ))
+        .arg_silent_suggestion()
         .arg_manifest_path()
 }
 

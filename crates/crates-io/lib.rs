@@ -1,5 +1,3 @@
-#![allow(clippy::all)]
-
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::prelude::*;
@@ -38,6 +36,10 @@ pub struct Crate {
     pub max_version: String,
 }
 
+/// This struct is serialized as JSON and sent as metadata ahead of the crate
+/// tarball when publishing crates to a crate registry like crates.io.
+///
+/// see <https://doc.rust-lang.org/cargo/reference/registry-web-api.html#publish>
 #[derive(Serialize, Deserialize)]
 pub struct NewCrate {
     pub name: String,
@@ -73,6 +75,16 @@ pub struct NewCrateDependency {
     pub registry: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub explicit_name_in_toml: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bindep_target: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub lib: bool,
+}
+
+fn is_false(x: &bool) -> bool {
+    *x == false
 }
 
 #[derive(Deserialize)]
@@ -132,7 +144,7 @@ pub enum Error {
     #[error(transparent)]
     Curl(#[from] curl::Error),
 
-    /// Error from seriailzing the request payload and deserialzing the
+    /// Error from seriailzing the request payload and deserializing the
     /// response body (like response body didn't match expected structure).
     #[error(transparent)]
     Json(#[from] serde_json::Error),
@@ -424,7 +436,8 @@ impl Registry {
             .map(|s| s.errors.into_iter().map(|s| s.detail).collect::<Vec<_>>());
 
         match (self.handle.response_code()?, errors) {
-            (0, None) | (200, None) => Ok(body),
+            (0, None) => Ok(body),
+            (code, None) if is_success(code) => Ok(body),
             (code, Some(errors)) => Err(Error::Api {
                 code,
                 headers,
@@ -439,8 +452,12 @@ impl Registry {
     }
 }
 
+fn is_success(code: u32) -> bool {
+    code >= 200 && code < 300
+}
+
 fn status(code: u32) -> String {
-    if code == 200 {
+    if is_success(code) {
         String::new()
     } else {
         let reason = reason(code);

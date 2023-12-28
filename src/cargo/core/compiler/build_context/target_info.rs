@@ -185,6 +185,12 @@ impl TargetInfo {
                 .args(&rustflags)
                 .env_remove("RUSTC_LOG");
 
+            // Removes `FD_CLOEXEC` set by `jobserver::Client` to pass jobserver
+            // as environment variables specify.
+            if let Some(client) = config.jobserver_from_env() {
+                process.inherit_jobserver(client);
+            }
+
             if let CompileKind::Target(target) = kind {
                 process.arg("--target").arg(target.rustc_target());
             }
@@ -361,9 +367,8 @@ impl TargetInfo {
                 &*v.insert(value)
             }
         };
-        let (prefix, suffix) = match *crate_type_info {
-            Some((ref prefix, ref suffix)) => (prefix, suffix),
-            None => return Ok(None),
+        let Some((prefix, suffix)) = crate_type_info else {
+            return Ok(None);
         };
         let mut ret = vec![FileType {
             suffix: suffix.clone(),
@@ -460,7 +465,7 @@ impl TargetInfo {
                     // the names to match.
                     should_replace_hyphens: false,
                 })
-            } else if target_triple.ends_with("-msvc") {
+            } else if target_triple.ends_with("-msvc") || target_triple.ends_with("-uefi") {
                 ret.push(FileType {
                     suffix: ".pdb".to_string(),
                     prefix: prefix.clone(),
@@ -606,13 +611,12 @@ fn parse_crate_type(
     if not_supported {
         return Ok(None);
     }
-    let line = match lines.next() {
-        Some(line) => line,
-        None => anyhow::bail!(
+    let Some(line) = lines.next() else {
+        anyhow::bail!(
             "malformed output when learning about crate-type {} information\n{}",
             crate_type,
             output_err_info(cmd, output, error)
-        ),
+        )
     };
     let mut parts = line.trim().split("___");
     let prefix = parts.next().unwrap();
@@ -942,7 +946,7 @@ impl<'cfg> RustcTargetData<'cfg> {
     }
 
     /// Insert `kind` into our `target_info` and `target_config` members if it isn't present yet.
-    fn merge_compile_kind(&mut self, kind: CompileKind) -> CargoResult<()> {
+    pub fn merge_compile_kind(&mut self, kind: CompileKind) -> CargoResult<()> {
         if let CompileKind::Target(target) = kind {
             if !self.target_config.contains_key(&target) {
                 self.target_config
@@ -972,9 +976,8 @@ impl<'cfg> RustcTargetData<'cfg> {
     pub fn dep_platform_activated(&self, dep: &Dependency, kind: CompileKind) -> bool {
         // If this dependency is only available for certain platforms,
         // make sure we're only enabling it for that platform.
-        let platform = match dep.platform() {
-            Some(p) => p,
-            None => return true,
+        let Some(platform) = dep.platform() else {
+            return true;
         };
         let name = self.short_name(&kind);
         platform.matches(name, self.cfg(kind))
@@ -1052,20 +1055,19 @@ impl RustDocFingerprint {
                 serde_json::to_string(&actual_rustdoc_target_data)?,
             )
         };
-        let rustdoc_data = match paths::read(&fingerprint_path) {
-            Ok(rustdoc_data) => rustdoc_data,
+        let Ok(rustdoc_data) = paths::read(&fingerprint_path) else {
             // If the fingerprint does not exist, do not clear out the doc
             // directories. Otherwise this ran into problems where projects
             // like rustbuild were creating the doc directory before running
             // `cargo doc` in a way that deleting it would break it.
-            Err(_) => return write_fingerprint(),
+            return write_fingerprint();
         };
         match serde_json::from_str::<RustDocFingerprint>(&rustdoc_data) {
             Ok(fingerprint) => {
                 if fingerprint.rustc_vv == actual_rustdoc_target_data.rustc_vv {
                     return Ok(());
                 } else {
-                    log::debug!(
+                    tracing::debug!(
                         "doc fingerprint changed:\noriginal:\n{}\nnew:\n{}",
                         fingerprint.rustc_vv,
                         actual_rustdoc_target_data.rustc_vv
@@ -1073,11 +1075,11 @@ impl RustDocFingerprint {
                 }
             }
             Err(e) => {
-                log::debug!("could not deserialize {:?}: {}", fingerprint_path, e);
+                tracing::debug!("could not deserialize {:?}: {}", fingerprint_path, e);
             }
         };
         // Fingerprint does not match, delete the doc directories and write a new fingerprint.
-        log::debug!(
+        tracing::debug!(
             "fingerprint {:?} mismatch, clearing doc directories",
             fingerprint_path
         );

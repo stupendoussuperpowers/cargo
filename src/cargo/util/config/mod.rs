@@ -49,6 +49,7 @@
 //! translate from `ConfigValue` and environment variables to the caller's
 //! desired type.
 
+use crate::util::cache_lock::{CacheLock, CacheLockMode, CacheLocker};
 use std::borrow::Cow;
 use std::cell::{RefCell, RefMut};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
@@ -58,7 +59,7 @@ use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::fs::{self, File};
 use std::io::prelude::*;
-use std::io::{self, SeekFrom};
+use std::io::SeekFrom;
 use std::mem;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -67,23 +68,27 @@ use std::time::Instant;
 
 use self::ConfigValue as CV;
 use crate::core::compiler::rustdoc::RustdocExternMap;
+use crate::core::global_cache_tracker::{DeferredGlobalLastUse, GlobalCacheTracker};
 use crate::core::shell::Verbosity;
 use crate::core::{features, CliUnstable, Shell, SourceId, Workspace, WorkspaceRootConfig};
 use crate::ops::RegistryCredentialConfig;
+use crate::sources::CRATES_IO_INDEX;
+use crate::sources::CRATES_IO_REGISTRY;
 use crate::util::errors::CargoResult;
 use crate::util::network::http::configure_http_handle;
 use crate::util::network::http::http_handle;
-use crate::util::toml as cargo_toml;
+use crate::util::try_canonicalize;
 use crate::util::{internal, CanonicalUrl};
-use crate::util::{try_canonicalize, validate_package_name};
-use crate::util::{FileLock, Filesystem, IntoUrl, IntoUrlWithBase, Rustc};
+use crate::util::{Filesystem, IntoUrl, IntoUrlWithBase, Rustc};
 use anyhow::{anyhow, bail, format_err, Context as _};
 use cargo_credential::Secret;
 use cargo_util::paths;
+use cargo_util_schemas::manifest::RegistryName;
 use curl::easy::Easy;
 use lazycell::LazyCell;
 use serde::de::IntoDeserializer as _;
 use serde::Deserialize;
+use serde_untagged::UntaggedEnumVisitor;
 use time::OffsetDateTime;
 use toml_edit::Item;
 use url::Url;
@@ -105,6 +110,8 @@ pub use target::{TargetCfgConfig, TargetConfig};
 
 mod environment;
 use environment::Env;
+
+use super::auth::RegistryConfig;
 
 // Helper macro for creating typed access methods.
 macro_rules! get_value_typed {
@@ -208,9 +215,10 @@ pub struct Config {
     /// Cache of credentials from configuration or credential providers.
     /// Maps from url to credential value.
     credential_cache: LazyCell<RefCell<HashMap<CanonicalUrl, CredentialCacheValue>>>,
-    /// Lock, if held, of the global package cache along with the number of
-    /// acquisitions so far.
-    package_cache_lock: RefCell<Option<(Option<FileLock>, usize)>>,
+    /// Cache of registry config from from the `[registries]` table.
+    registry_config: LazyCell<RefCell<HashMap<SourceId, Option<RegistryConfig>>>>,
+    /// Locks on the package and index caches.
+    package_cache_lock: CacheLocker,
     /// Cached configuration parsed by Cargo
     http_config: LazyCell<CargoHttpConfig>,
     future_incompat_config: LazyCell<CargoFutureIncompatConfig>,
@@ -238,6 +246,11 @@ pub struct Config {
     pub nightly_features_allowed: bool,
     /// WorkspaceRootConfigs that have been found
     pub ws_roots: RefCell<HashMap<PathBuf, WorkspaceRootConfig>>,
+    /// The global cache tracker is a database used to track disk cache usage.
+    global_cache_tracker: LazyCell<RefCell<GlobalCacheTracker>>,
+    /// A cache of modifications to make to [`Config::global_cache_tracker`],
+    /// saved to disk in a batch to improve performance.
+    deferred_global_last_use: LazyCell<RefCell<DeferredGlobalLastUse>>,
 }
 
 impl Config {
@@ -299,7 +312,8 @@ impl Config {
             env,
             updated_sources: LazyCell::new(),
             credential_cache: LazyCell::new(),
-            package_cache_lock: RefCell::new(None),
+            registry_config: LazyCell::new(),
+            package_cache_lock: CacheLocker::new(),
             http_config: LazyCell::new(),
             future_incompat_config: LazyCell::new(),
             net_config: LazyCell::new(),
@@ -310,6 +324,8 @@ impl Config {
             env_config: LazyCell::new(),
             nightly_features_allowed: matches!(&*features::channel(), "nightly" | "dev"),
             ws_roots: RefCell::new(HashMap::new()),
+            global_cache_tracker: LazyCell::new(),
+            deferred_global_last_use: LazyCell::new(),
         }
     }
 
@@ -350,6 +366,18 @@ impl Config {
     /// Gets the Cargo Git directory (`<cargo_home>/git`).
     pub fn git_path(&self) -> Filesystem {
         self.home_path.join("git")
+    }
+
+    /// Gets the directory of code sources Cargo checkouts from Git bare repos
+    /// (`<cargo_home>/git/checkouts`).
+    pub fn git_checkouts_path(&self) -> Filesystem {
+        self.git_path().join("checkouts")
+    }
+
+    /// Gets the directory for all Git bare repos Cargo clones
+    /// (`<cargo_home>/git/db`).
+    pub fn git_db_path(&self) -> Filesystem {
+        self.git_path().join("db")
     }
 
     /// Gets the Cargo base directory for all registry information (`<cargo_home>/registry`).
@@ -488,6 +516,13 @@ impl Config {
             .borrow_mut()
     }
 
+    /// Cache of already parsed registries from the `[registries]` table.
+    pub(crate) fn registry_config(&self) -> RefMut<'_, HashMap<SourceId, Option<RegistryConfig>>> {
+        self.registry_config
+            .borrow_with(|| RefCell::new(HashMap::new()))
+            .borrow_mut()
+    }
+
     /// Gets all config values from disk.
     ///
     /// This will lazy-load the values as necessary. Callers are responsible
@@ -599,7 +634,7 @@ impl Config {
         key: &ConfigKey,
         vals: &HashMap<String, ConfigValue>,
     ) -> CargoResult<Option<ConfigValue>> {
-        log::trace!("get cv {:?}", key);
+        tracing::trace!("get cv {:?}", key);
         if key.is_root() {
             // Returning the entire root table (for example `cargo config get`
             // with no key). The definition here shouldn't matter.
@@ -609,9 +644,8 @@ impl Config {
             )));
         }
         let mut parts = key.parts().enumerate();
-        let mut val = match vals.get(parts.next().unwrap().1) {
-            Some(val) => val,
-            None => return Ok(None),
+        let Some(mut val) = vals.get(parts.next().unwrap().1) else {
+            return Ok(None);
         };
         for (i, part) in parts {
             match val {
@@ -893,12 +927,9 @@ impl Config {
         key: &ConfigKey,
         output: &mut Vec<(String, Definition)>,
     ) -> CargoResult<()> {
-        let env_val = match self.env.get_str(key.as_env_key()) {
-            Some(v) => v,
-            None => {
-                self.check_environment_key_case_mismatch(key);
-                return Ok(());
-            }
+        let Some(env_val) = self.env.get_str(key.as_env_key()) else {
+            self.check_environment_key_case_mismatch(key);
+            return Ok(());
         };
 
         let def = Definition::Environment(key.as_env_key().to_string());
@@ -926,6 +957,7 @@ impl Config {
                     .map(|s| (s.to_string(), def.clone())),
             );
         }
+        output.sort_by(|a, b| a.1.cmp(&b.1));
         Ok(())
     }
 
@@ -1020,6 +1052,9 @@ impl Config {
 
         self.shell().set_verbosity(verbosity);
         self.shell().set_color_choice(color)?;
+        if let Some(hyperlinks) = term.hyperlinks {
+            self.shell().set_hyperlinks(hyperlinks)?;
+        }
         self.progress_config = term.progress.unwrap_or_default();
         self.extra_verbose = extra_verbose;
         self.frozen = frozen;
@@ -1181,9 +1216,11 @@ impl Config {
                 path.display()
             );
         }
+        tracing::debug!(?path, ?why_load, includes, "load config from file");
+
         let contents = fs::read_to_string(path)
             .with_context(|| format!("failed to read configuration file `{}`", path.display()))?;
-        let toml = cargo_toml::parse_document(&contents, path, self).with_context(|| {
+        let toml = parse_document(&contents, path, self).with_context(|| {
             format!("could not parse TOML configuration in `{}`", path.display())
         })?;
         let def = match why_load {
@@ -1247,9 +1284,8 @@ impl Config {
             };
             (path.to_string(), abs_path, def.clone())
         };
-        let table = match cv {
-            CV::Table(table, _def) => table,
-            _ => unreachable!(),
+        let CV::Table(table, _def) = cv else {
+            unreachable!()
         };
         let owned;
         let include = if remove {
@@ -1288,9 +1324,8 @@ impl Config {
     /// Parses the CLI config args and returns them as a table.
     pub(crate) fn cli_args_as_table(&self) -> CargoResult<ConfigValue> {
         let mut loaded_args = CV::Table(HashMap::new(), Definition::Cli(None));
-        let cli_args = match &self.cli_config {
-            Some(cli_args) => cli_args,
-            None => return Ok(loaded_args),
+        let Some(cli_args) = &self.cli_config else {
+            return Ok(loaded_args);
         };
         let mut seen = HashSet::new();
         for arg in cli_args {
@@ -1436,9 +1471,8 @@ impl Config {
 
     /// Add config arguments passed on the command line.
     fn merge_cli_args(&mut self) -> CargoResult<()> {
-        let loaded_map = match self.cli_args_as_table()? {
-            CV::Table(table, _def) => table,
-            _ => unreachable!(),
+        let CV::Table(loaded_map, _def) = self.cli_args_as_table()? else {
+            unreachable!()
         };
         let values = self.values_mut()?;
         for (key, value) in loaded_map.into_iter() {
@@ -1530,7 +1564,7 @@ impl Config {
 
     /// Gets the index for a registry.
     pub fn get_registry_index(&self, registry: &str) -> CargoResult<Url> {
-        validate_package_name(registry, "registry name", "")?;
+        RegistryName::new(registry)?;
         if let Some(index) = self.get_string(&format!("registries.{}.index", registry))? {
             self.resolve_registry_index(&index).with_context(|| {
                 format!(
@@ -1539,7 +1573,10 @@ impl Config {
                 )
             })
         } else {
-            bail!("no index found for registry: `{}`", registry);
+            bail!(
+                "registry index was not found in any configuration: `{}`",
+                registry
+            );
         }
     }
 
@@ -1582,17 +1619,15 @@ impl Config {
         }
 
         let home_path = self.home_path.clone().into_path_unlocked();
-        let credentials = match self.get_file_path(&home_path, "credentials", true)? {
-            Some(credentials) => credentials,
-            None => return Ok(()),
+        let Some(credentials) = self.get_file_path(&home_path, "credentials", true)? else {
+            return Ok(());
         };
 
         let mut value = self.load_file(&credentials)?;
         // Backwards compatibility for old `.cargo/credentials` layout.
         {
-            let (value_map, def) = match value {
-                CV::Table(ref mut value, ref def) => (value, def),
-                _ => unreachable!(),
+            let CV::Table(ref mut value_map, ref def) = value else {
+                unreachable!();
             };
 
             if let Some(token) = value_map.remove("token") {
@@ -1826,11 +1861,17 @@ impl Config {
         target::load_target_triple(self, target)
     }
 
-    pub fn crates_io_source_id<F>(&self, f: F) -> CargoResult<SourceId>
-    where
-        F: FnMut() -> CargoResult<SourceId>,
-    {
-        Ok(*(self.crates_io_source_id.try_borrow_with(f)?))
+    /// Returns the cached [`SourceId`] corresponding to the main repository.
+    ///
+    /// This is the main cargo registry by default, but it can be overridden in
+    /// a `.cargo/config.toml`.
+    pub fn crates_io_source_id(&self) -> CargoResult<SourceId> {
+        let source_id = self.crates_io_source_id.try_borrow_with(|| {
+            self.check_registry_index_not_set()?;
+            let url = CRATES_IO_INDEX.into_url().unwrap();
+            SourceId::for_alt_registry(&url, CRATES_IO_REGISTRY)
+        })?;
+        Ok(*source_id)
     }
 
     pub fn creation_time(&self) -> Instant {
@@ -1860,10 +1901,20 @@ impl Config {
         T::deserialize(d).map_err(|e| e.into())
     }
 
-    pub fn assert_package_cache_locked<'a>(&self, f: &'a Filesystem) -> &'a Path {
+    /// Obtain a [`Path`] from a [`Filesystem`], verifying that the
+    /// appropriate lock is already currently held.
+    ///
+    /// Locks are usually acquired via [`Config::acquire_package_cache_lock`]
+    /// or [`Config::try_acquire_package_cache_lock`].
+    #[track_caller]
+    pub fn assert_package_cache_locked<'a>(
+        &self,
+        mode: CacheLockMode,
+        f: &'a Filesystem,
+    ) -> &'a Path {
         let ret = f.as_path_unlocked();
         assert!(
-            self.package_cache_lock.borrow().is_some(),
+            self.package_cache_lock.is_locked(mode),
             "package cache lock is not currently held, Cargo forgot to call \
              `acquire_package_cache_lock` before we got to this stack frame",
         );
@@ -1871,72 +1922,45 @@ impl Config {
         ret
     }
 
-    /// Acquires an exclusive lock on the global "package cache"
+    /// Acquires a lock on the global "package cache", blocking if another
+    /// cargo holds the lock.
     ///
-    /// This lock is global per-process and can be acquired recursively. An RAII
-    /// structure is returned to release the lock, and if this process
-    /// abnormally terminates the lock is also released.
-    pub fn acquire_package_cache_lock(&self) -> CargoResult<PackageCacheLock<'_>> {
-        let mut slot = self.package_cache_lock.borrow_mut();
-        match *slot {
-            // We've already acquired the lock in this process, so simply bump
-            // the count and continue.
-            Some((_, ref mut cnt)) => {
-                *cnt += 1;
-            }
-            None => {
-                let path = ".package-cache";
-                let desc = "package cache";
-
-                // First, attempt to open an exclusive lock which is in general
-                // the purpose of this lock!
-                //
-                // If that fails because of a readonly filesystem or a
-                // permission error, though, then we don't really want to fail
-                // just because of this. All files that this lock protects are
-                // in subfolders, so they're assumed by Cargo to also be
-                // readonly or have invalid permissions for us to write to. If
-                // that's the case, then we don't really need to grab a lock in
-                // the first place here.
-                //
-                // Despite this we attempt to grab a readonly lock. This means
-                // that if our read-only folder is shared read-write with
-                // someone else on the system we should synchronize with them,
-                // but if we can't even do that then we did our best and we just
-                // keep on chugging elsewhere.
-                match self.home_path.open_rw(path, self, desc) {
-                    Ok(lock) => *slot = Some((Some(lock), 1)),
-                    Err(e) => {
-                        if maybe_readonly(&e) {
-                            let lock = self.home_path.open_ro(path, self, desc).ok();
-                            *slot = Some((lock, 1));
-                            return Ok(PackageCacheLock(self));
-                        }
-
-                        Err(e).with_context(|| "failed to acquire package cache lock")?;
-                    }
-                }
-            }
-        }
-        return Ok(PackageCacheLock(self));
-
-        fn maybe_readonly(err: &anyhow::Error) -> bool {
-            err.chain().any(|err| {
-                if let Some(io) = err.downcast_ref::<io::Error>() {
-                    if io.kind() == io::ErrorKind::PermissionDenied {
-                        return true;
-                    }
-
-                    #[cfg(unix)]
-                    return io.raw_os_error() == Some(libc::EROFS);
-                }
-
-                false
-            })
-        }
+    /// See [`crate::util::cache_lock`] for an in-depth discussion of locking
+    /// and lock modes.
+    pub fn acquire_package_cache_lock(&self, mode: CacheLockMode) -> CargoResult<CacheLock<'_>> {
+        self.package_cache_lock.lock(self, mode)
     }
 
-    pub fn release_package_cache_lock(&self) {}
+    /// Acquires a lock on the global "package cache", returning `None` if
+    /// another cargo holds the lock.
+    ///
+    /// See [`crate::util::cache_lock`] for an in-depth discussion of locking
+    /// and lock modes.
+    pub fn try_acquire_package_cache_lock(
+        &self,
+        mode: CacheLockMode,
+    ) -> CargoResult<Option<CacheLock<'_>>> {
+        self.package_cache_lock.try_lock(self, mode)
+    }
+
+    /// Returns a reference to the shared [`GlobalCacheTracker`].
+    ///
+    /// The package cache lock must be held to call this function (and to use
+    /// it in general).
+    pub fn global_cache_tracker(&self) -> CargoResult<RefMut<'_, GlobalCacheTracker>> {
+        let tracker = self.global_cache_tracker.try_borrow_with(|| {
+            Ok::<_, anyhow::Error>(RefCell::new(GlobalCacheTracker::new(self)?))
+        })?;
+        Ok(tracker.borrow_mut())
+    }
+
+    /// Returns a reference to the shared [`DeferredGlobalLastUse`].
+    pub fn deferred_global_last_use(&self) -> CargoResult<RefMut<'_, DeferredGlobalLastUse>> {
+        let deferred = self.deferred_global_last_use.try_borrow_with(|| {
+            Ok::<_, anyhow::Error>(RefCell::new(DeferredGlobalLastUse::new()))
+        })?;
+        Ok(deferred.borrow_mut())
+    }
 }
 
 /// Internal error for serde errors.
@@ -2094,8 +2118,8 @@ impl ConfigValue {
 
     /// Merge the given value into self.
     ///
-    /// If `force` is true, primitive (non-container) types will override existing values.
-    /// If false, the original will be kept and the new value ignored.
+    /// If `force` is true, primitive (non-container) types will override existing values
+    /// of equal priority. For arrays, incoming values of equal priority will be placed later.
     ///
     /// Container types (tables and arrays) are merged with existing values.
     ///
@@ -2103,7 +2127,13 @@ impl ConfigValue {
     fn merge(&mut self, from: ConfigValue, force: bool) -> CargoResult<()> {
         match (self, from) {
             (&mut CV::List(ref mut old, _), CV::List(ref mut new, _)) => {
-                old.extend(mem::take(new).into_iter());
+                if force {
+                    old.append(new);
+                } else {
+                    new.append(old);
+                    mem::swap(new, old);
+                }
+                old.sort_by(|a, b| a.1.cmp(&b.1));
             }
             (&mut CV::Table(ref mut old, _), CV::Table(ref mut new, _)) => {
                 for (key, value) in mem::take(new) {
@@ -2249,7 +2279,7 @@ pub fn save_credentials(
     let mut file = {
         cfg.home_path.create_dir()?;
         cfg.home_path
-            .open_rw(filename, cfg, "credentials' config file")?
+            .open_rw_exclusive_create(filename, cfg, "credentials' config file")?
     };
 
     let mut contents = String::new();
@@ -2260,7 +2290,7 @@ pub fn save_credentials(
         )
     })?;
 
-    let mut toml = cargo_toml::parse_document(&contents, file.path(), cfg)?;
+    let mut toml = parse_document(&contents, file.path(), cfg)?;
 
     // Move the old token location to the new one.
     if let Some(token) = toml.remove("token") {
@@ -2368,19 +2398,6 @@ pub fn save_credentials(
     }
 }
 
-pub struct PackageCacheLock<'a>(&'a Config);
-
-impl Drop for PackageCacheLock<'_> {
-    fn drop(&mut self) {
-        let mut slot = self.0.package_cache_lock.borrow_mut();
-        let (_, cnt) = slot.as_mut().unwrap();
-        *cnt -= 1;
-        if *cnt == 0 {
-            *slot = None;
-        }
-    }
-}
-
 #[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct CargoHttpConfig {
@@ -2434,11 +2451,22 @@ impl CargoFutureIncompatConfig {
 /// ssl-version.min = "tlsv1.2"
 /// ssl-version.max = "tlsv1.3"
 /// ```
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(untagged)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SslVersionConfig {
     Single(String),
     Range(SslVersionConfigRange),
+}
+
+impl<'de> Deserialize<'de> for SslVersionConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        UntaggedEnumVisitor::new()
+            .string(|single| Ok(SslVersionConfig::Single(single.to_owned())))
+            .map(|map| map.deserialize().map(SslVersionConfig::Range))
+            .deserialize(deserializer)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -2474,11 +2502,22 @@ pub struct CargoSshConfig {
 /// [build]
 /// jobs = "default" # Currently only support "default".
 /// ```
-#[derive(Debug, Deserialize, Clone)]
-#[serde(untagged)]
+#[derive(Debug, Clone)]
 pub enum JobsConfig {
     Integer(i32),
     String(String),
+}
+
+impl<'de> Deserialize<'de> for JobsConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        UntaggedEnumVisitor::new()
+            .i32(|int| Ok(JobsConfig::Integer(int)))
+            .string(|string| Ok(JobsConfig::String(string.to_owned())))
+            .deserialize(deserializer)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -2515,11 +2554,22 @@ pub struct BuildTargetConfig {
     inner: Value<BuildTargetConfigInner>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
+#[derive(Debug)]
 enum BuildTargetConfigInner {
     One(String),
     Many(Vec<String>),
+}
+
+impl<'de> Deserialize<'de> for BuildTargetConfigInner {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        UntaggedEnumVisitor::new()
+            .string(|one| Ok(BuildTargetConfigInner::One(one.to_owned())))
+            .seq(|many| many.deserialize().map(BuildTargetConfigInner::Many))
+            .deserialize(deserializer)
+    }
 }
 
 impl BuildTargetConfig {
@@ -2554,6 +2604,7 @@ struct TermConfig {
     verbose: Option<bool>,
     quiet: Option<bool>,
     color: Option<String>,
+    hyperlinks: Option<bool>,
     #[serde(default)]
     #[serde(deserialize_with = "progress_or_string")]
     progress: Option<ProgressConfig>,
@@ -2633,17 +2684,42 @@ where
     deserializer.deserialize_option(ProgressVisitor)
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
+#[derive(Debug)]
 enum EnvConfigValueInner {
     Simple(String),
     WithOptions {
         value: String,
-        #[serde(default)]
         force: bool,
-        #[serde(default)]
         relative: bool,
     },
+}
+
+impl<'de> Deserialize<'de> for EnvConfigValueInner {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct WithOptions {
+            value: String,
+            #[serde(default)]
+            force: bool,
+            #[serde(default)]
+            relative: bool,
+        }
+
+        UntaggedEnumVisitor::new()
+            .string(|simple| Ok(EnvConfigValueInner::Simple(simple.to_owned())))
+            .map(|map| {
+                let with_options: WithOptions = map.deserialize()?;
+                Ok(EnvConfigValueInner::WithOptions {
+                    value: with_options.value,
+                    force: with_options.force,
+                    relative: with_options.relative,
+                })
+            })
+            .deserialize(deserializer)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -2680,6 +2756,11 @@ impl EnvConfigValue {
 }
 
 pub type EnvConfig = HashMap<String, EnvConfigValue>;
+
+fn parse_document(toml: &str, _file: &Path, _config: &Config) -> CargoResult<toml::Table> {
+    // At the moment, no compatibility checks are needed.
+    toml.parse().map_err(Into::into)
+}
 
 /// A type to deserialize a list of strings from a toml file.
 ///
@@ -2786,7 +2867,7 @@ fn disables_multiplexing_for_bad_curl(
             .iter()
             .any(|v| curl_version.starts_with(v))
         {
-            log::info!("disabling multiplexing with proxy, curl version is {curl_version}");
+            tracing::info!("disabling multiplexing with proxy, curl version is {curl_version}");
             http.multiplexing = Some(false);
         }
     }

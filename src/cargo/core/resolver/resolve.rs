@@ -1,6 +1,6 @@
 use super::encode::Metadata;
 use crate::core::dependency::DepKind;
-use crate::core::{Dependency, PackageId, PackageIdSpec, Summary, Target};
+use crate::core::{Dependency, PackageId, PackageIdSpec, PackageIdSpecQuery, Summary, Target};
 use crate::util::errors::CargoResult;
 use crate::util::interning::InternedString;
 use crate::util::Graph;
@@ -86,6 +86,17 @@ pub enum ResolveVersion {
     ///
     /// * SourceId URL serialization is aware of URL encoding.
     V4,
+}
+
+impl ResolveVersion {
+    /// The maximum version of lockfile made into the stable channel.
+    ///
+    /// Any version larger than this needs `-Znext-lockfile-bump` to enable.
+    ///
+    /// Update this when you're going to stabilize a new lockfile format.
+    pub fn max_stable() -> ResolveVersion {
+        ResolveVersion::V3
+    }
 }
 
 impl Resolve {

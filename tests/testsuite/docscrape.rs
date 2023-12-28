@@ -26,13 +26,18 @@ fn basic() {
 [SCRAPING] foo v0.0.1 ([CWD])
 [DOCUMENTING] foo v0.0.1 ([CWD])
 [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[GENERATED] [CWD]/target/doc/foo/index.html
 ",
         )
         .run();
 
     p.cargo("doc -Zunstable-options -Z rustdoc-scrape-examples")
         .masquerade_as_nightly_cargo(&["rustdoc-scrape-examples"])
-        .with_stderr("[FINISHED] [..]")
+        .with_stderr(
+            "[FINISHED] [..]
+[GENERATED] [CWD]/target/doc/foo/index.html
+",
+        )
         .run();
 
     let doc_html = p.read_file("target/doc/foo/fn.foo.html");
@@ -41,6 +46,84 @@ fn basic() {
 
     // Ensure that the reverse-dependency has its sources generated
     assert!(p.build_dir().join("doc/src/ex/ex.rs.html").exists());
+}
+
+// This test ensures that even if there is no `[workspace]` in the top-level `Cargo.toml` file, the
+// dependencies will get their examples scraped and that they appear in the generated documentation.
+#[cargo_test(nightly, reason = "-Zrustdoc-scrape-examples is unstable")]
+fn scrape_examples_for_non_workspace_reexports() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+                edition = "2021"
+                authors = []
+
+                [dependencies]
+                a = { path = "crates/a" }
+            "#,
+        )
+        .file("src/lib.rs", "pub use a::*;")
+        // Example
+        .file(
+            "examples/one.rs",
+            r#"use foo::*;
+fn main() {
+    let foo = Foo::new("yes".into());
+    foo.maybe();
+}"#,
+        )
+        // `a` crate
+        .file(
+            "crates/a/Cargo.toml",
+            r#"
+                [package]
+                name = "a"
+                version = "0.0.1"
+                authors = []
+        "#,
+        )
+        .file(
+            "crates/a/src/lib.rs",
+            r#"
+#[derive(Debug)]
+pub struct Foo {
+    foo: String,
+    yes: bool,
+}
+
+impl Foo {
+    pub fn new(foo: String) -> Self {
+        Self { foo, yes: true }
+    }
+
+    pub fn maybe(&self) {
+        if self.yes {
+            println!("{}", self.foo)
+        }
+    }
+}"#,
+        )
+        .build();
+
+    p.cargo("doc -Zunstable-options -Zrustdoc-scrape-examples --no-deps")
+        .masquerade_as_nightly_cargo(&["rustdoc-scrape-examples"])
+        .with_stderr_unordered(
+            "\
+[CHECKING] a v0.0.1 ([CWD]/crates/a)
+[CHECKING] foo v0.0.1 ([CWD])
+[SCRAPING] foo v0.0.1 ([CWD])
+[DOCUMENTING] foo v0.0.1 ([CWD])
+[FINISHED] [..]
+[GENERATED] [CWD]/target/doc/foo/index.html",
+        )
+        .run();
+
+    let doc_html = p.read_file("target/doc/foo/struct.Foo.html");
+    assert!(doc_html.contains("Examples found in repository"));
 }
 
 #[cargo_test(nightly, reason = "rustdoc scrape examples flags are unstable")]
@@ -311,6 +394,7 @@ fn cache() {
 [SCRAPING] foo v0.0.1 ([CWD])
 [DOCUMENTING] foo v0.0.1 ([CWD])
 [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[GENERATED] [CWD]/target/doc/foo/index.html
 ",
         )
         .run();
@@ -320,6 +404,7 @@ fn cache() {
         .with_stderr(
             "\
 [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[GENERATED] [CWD]/target/doc/foo/index.html
 ",
         )
         .run();
@@ -361,7 +446,9 @@ warning: failed to scan example \"ex2\" in package `foo` for example code usage
     If an example should not be scanned, then consider adding `doc-scrape-examples = false` to its `[[example]]` definition in Cargo.toml
 warning: `foo` (example \"ex2\") generated 1 warning
 [DOCUMENTING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]",
+[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[GENERATED] [CWD]/target/doc/foo/index.html
+",
     )
         .run();
 }
@@ -425,7 +512,9 @@ warning: failed to scan example \"ex1\" in package `foo` for example code usage
     If an example should not be scanned, then consider adding `doc-scrape-examples = false` to its `[[example]]` definition in Cargo.toml
 warning: `foo` (example \"ex1\") generated 1 warning
 [DOCUMENTING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]",
+[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[GENERATED] [CWD]/target/doc/foo/index.html
+",
         )
         .run();
 
@@ -448,7 +537,9 @@ error: expected one of `!` or `::`, found `NOT`
   |      ^^^ expected one of `!` or `::`
 
 [DOCUMENTING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]",
+[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[GENERATED] [CWD]/target/doc/foo/index.html
+",
         )
         .run();
 
@@ -499,7 +590,9 @@ warning: Rustdoc did not scrape the following examples because they require dev-
     If you want Rustdoc to scrape these examples, then add `doc-scrape-examples = true`
     to the [[example]] target configuration of at least one example.
 [DOCUMENTING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]",
+[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[GENERATED] [CWD]/target/doc/foo/index.html
+",
         )
         .run();
 
@@ -513,7 +606,9 @@ warning: Rustdoc did not scrape the following examples because they require dev-
 [DOCUMENTING] a v0.0.1 ([CWD]/a)
 [SCRAPING] foo v0.0.1 ([CWD])
 [DOCUMENTING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]",
+[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[GENERATED] [CWD]/target/doc/ex/index.html
+",
         )
         .run();
 }
@@ -560,7 +655,9 @@ fn use_dev_deps_if_explicitly_enabled() {
 [CHECKING] a v0.0.1 ([CWD]/a)
 [SCRAPING] foo v0.0.1 ([CWD])
 [DOCUMENTING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]",
+[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[GENERATED] [CWD]/target/doc/foo/index.html
+",
         )
         .run();
 }

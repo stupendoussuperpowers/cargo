@@ -1,7 +1,7 @@
 # cargo-add(1)
-
-{{*set actionverb="Add"}}
-{{*set nouns="adds"}}
+{{~*set command="add"}}
+{{~*set actionverb="Add"}}
+{{~*set nouns="adds"}}
 
 ## NAME
 
@@ -35,7 +35,7 @@ When you add a package that is already present, the existing entry will be updat
 Upon successful invocation, the enabled (`+`) and disabled (`-`) [features] of the specified
 dependency will be listed in the command's output.
 
-[features]: ../reference/features.md
+[features]: ../reference/features.html
 
 ## OPTIONS
 

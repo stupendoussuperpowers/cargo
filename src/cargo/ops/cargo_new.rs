@@ -1,10 +1,12 @@
 use crate::core::{Edition, Shell, Workspace};
 use crate::util::errors::CargoResult;
 use crate::util::important_paths::find_root_manifest_for_wd;
+use crate::util::toml_mut::is_sorted;
 use crate::util::{existing_vcs_repo, FossilRepo, GitRepo, HgRepo, PijulRepo};
 use crate::util::{restricted_names, Config};
-use anyhow::{anyhow, Context as _};
-use cargo_util::paths;
+use anyhow::{anyhow, Context};
+use cargo_util::paths::{self, write_atomic};
+use cargo_util_schemas::manifest::PackageName;
 use serde::de;
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -13,6 +15,7 @@ use std::io::{BufRead, BufReader, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::{fmt, slice};
+use toml_edit::{Array, Value};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum VersionControl {
@@ -93,7 +96,6 @@ struct MkOptions<'a> {
     path: &'a Path,
     name: &'a str,
     source_files: Vec<SourceFileInformation>,
-    bin: bool,
     edition: Option<&'a str>,
     registry: Option<&'a str>,
 }
@@ -179,7 +181,7 @@ fn check_name(
     };
     let bin_help = || {
         let mut help = String::from(name_help);
-        if has_bin {
+        if has_bin && !name.is_empty() {
             help.push_str(&format!(
                 "\n\
                 If you need a binary with the name \"{name}\", use a valid package \
@@ -196,7 +198,10 @@ fn check_name(
         }
         help
     };
-    restricted_names::validate_package_name(name, "package name", &bin_help())?;
+    PackageName::new(name).map_err(|err| {
+        let help = bin_help();
+        anyhow::anyhow!("{err}{help}")
+    })?;
 
     if restricted_names::is_keyword(name) {
         anyhow::bail!(
@@ -257,6 +262,12 @@ fn check_name(
             "the name `{}` contains non-ASCII characters\n\
             Non-ASCII crate names are not supported by Rust.",
             name
+        ))?;
+    }
+    let name_in_lowercase = name.to_lowercase();
+    if name != name_in_lowercase {
+        shell.warn(format!(
+            "the name `{name}` is not snake_case or kebab-case which is recommended for package names, consider `{name_in_lowercase}`"
         ))?;
     }
 
@@ -448,7 +459,6 @@ pub fn new(opts: &NewOptions, config: &Config) -> CargoResult<()> {
         path,
         name,
         source_files: vec![plan_new_source_file(opts.kind.is_bin(), name.to_string())],
-        bin: is_bin,
         edition: opts.edition.as_deref(),
         registry: opts.registry.as_deref(),
     };
@@ -553,7 +563,6 @@ pub fn init(opts: &NewOptions, config: &Config) -> CargoResult<NewProjectKind> {
         version_control,
         path,
         name,
-        bin: has_bin,
         source_files: src_paths_types,
         edition: opts.edition.as_deref(),
         registry: opts.registry.as_deref(),
@@ -745,9 +754,6 @@ fn mk(config: &Config, opts: &MkOptions<'_>) -> CargoResult<()> {
     // for all mutually-incompatible VCS in terms of syntax are in sync.
     let mut ignore = IgnoreList::new();
     ignore.push("/target", "^target$", "target");
-    if !opts.bin {
-        ignore.push("/Cargo.lock", "^Cargo.lock$", "Cargo.lock");
-    }
 
     let vcs = opts.version_control.unwrap_or_else(|| {
         let in_existing_vcs = existing_vcs_repo(path.parent().unwrap_or(path), config.cwd());
@@ -809,7 +815,7 @@ fn mk(config: &Config, opts: &MkOptions<'_>) -> CargoResult<()> {
         // Sometimes the root manifest is not a valid manifest, so we only try to parse it if it is.
         // This should not block the creation of the new project. It is only a best effort to
         // inherit the workspace package keys.
-        if let Ok(workspace_document) = root_manifest.parse::<toml_edit::Document>() {
+        if let Ok(mut workspace_document) = root_manifest.parse::<toml_edit::Document>() {
             if let Some(workspace_package_keys) = workspace_document
                 .get("workspace")
                 .and_then(|workspace| workspace.get("package"))
@@ -823,16 +829,22 @@ fn mk(config: &Config, opts: &MkOptions<'_>) -> CargoResult<()> {
             }
 
             // Try to inherit the workspace lints key if it exists.
-            if config.cli_unstable().lints
-                && workspace_document
-                    .get("workspace")
-                    .and_then(|workspace| workspace.get("lints"))
-                    .is_some()
+            if workspace_document
+                .get("workspace")
+                .and_then(|workspace| workspace.get("lints"))
+                .is_some()
             {
                 let mut table = toml_edit::Table::new();
                 table["workspace"] = toml_edit::value(true);
                 manifest["lints"] = toml_edit::Item::Table(table);
             }
+
+            // Try to add the new package to the workspace members.
+            update_manifest_with_new_member(
+                &root_manifest_path,
+                &mut workspace_document,
+                opts.path,
+            )?;
         }
     }
 
@@ -879,7 +891,7 @@ mod tests {
                 .arg(&path_of_source_file)
                 .exec_with_output()
             {
-                log::warn!("failed to call rustfmt: {:#}", e);
+                tracing::warn!("failed to call rustfmt: {:#}", e);
             }
         }
     }
@@ -931,4 +943,96 @@ fn update_manifest_with_inherited_workspace_package_keys(
 
         try_remove_and_inherit_package_key(key, manifest);
     }
+}
+
+/// Adds the new package member to the [workspace.members] array.
+/// - It first checks if the name matches any element in [workspace.exclude],
+///  and it ignores the name if there is a match.
+/// - Then it check if the name matches any element already in [workspace.members],
+/// and it ignores the name if there is a match.
+/// - If [workspace.members] doesn't exist in the manifest, it will add a new section
+/// with the new package in it.
+fn update_manifest_with_new_member(
+    root_manifest_path: &Path,
+    workspace_document: &mut toml_edit::Document,
+    package_path: &Path,
+) -> CargoResult<()> {
+    // Find the relative path for the package from the workspace root directory.
+    let workspace_root = root_manifest_path.parent().with_context(|| {
+        format!(
+            "workspace root manifest doesn't have a parent directory `{}`",
+            root_manifest_path.display()
+        )
+    })?;
+    let relpath = pathdiff::diff_paths(package_path, workspace_root).with_context(|| {
+        format!(
+            "path comparison requires two absolute paths; package_path: `{}`, workspace_path: `{}`",
+            package_path.display(),
+            workspace_root.display()
+        )
+    })?;
+
+    let mut components = Vec::new();
+    for comp in relpath.iter() {
+        let comp = comp.to_str().with_context(|| {
+            format!("invalid unicode component in path `{}`", relpath.display())
+        })?;
+        components.push(comp);
+    }
+    let display_path = components.join("/");
+
+    // Don't add the new package to the workspace's members
+    // if there is an exclusion match for it.
+    if let Some(exclude) = workspace_document
+        .get("workspace")
+        .and_then(|workspace| workspace.get("exclude"))
+        .and_then(|exclude| exclude.as_array())
+    {
+        for member in exclude {
+            let pat = member
+                .as_str()
+                .with_context(|| format!("invalid non-string exclude path `{}`", member))?;
+            if pat == display_path {
+                return Ok(());
+            }
+        }
+    }
+
+    // If the members element already exist, check if one of the patterns
+    // in the array already includes the new package's relative path.
+    // - Add the relative path if the members don't match the new package's path.
+    // - Create a new members array if there are no members element in the workspace yet.
+    if let Some(members) = workspace_document
+        .get_mut("workspace")
+        .and_then(|workspace| workspace.get_mut("members"))
+        .and_then(|members| members.as_array_mut())
+    {
+        for member in members.iter() {
+            let pat = member
+                .as_str()
+                .with_context(|| format!("invalid non-string member `{}`", member))?;
+            let pattern = glob::Pattern::new(pat)
+                .with_context(|| format!("cannot build glob pattern from `{}`", pat))?;
+
+            if pattern.matches(&display_path) {
+                return Ok(());
+            }
+        }
+
+        let was_sorted = is_sorted(members.iter().map(Value::as_str));
+        members.push(&display_path);
+        if was_sorted {
+            members.sort_by(|lhs, rhs| lhs.as_str().cmp(&rhs.as_str()));
+        }
+    } else {
+        let mut array = Array::new();
+        array.push(&display_path);
+
+        workspace_document["workspace"]["members"] = toml_edit::value(array);
+    }
+
+    write_atomic(
+        &root_manifest_path,
+        workspace_document.to_string().to_string().as_bytes(),
+    )
 }

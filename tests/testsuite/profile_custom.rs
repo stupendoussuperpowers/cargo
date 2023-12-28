@@ -86,8 +86,11 @@ fn invalid_profile_name() {
 [ERROR] failed to parse manifest at [..]
 
 Caused by:
-  invalid character `.` in profile name `.release-lto`
-  Allowed characters are letters, numbers, underscore, and hyphen.
+  TOML parse error at line 7, column 26
+    |
+  7 |                 [profile.'.release-lto']
+    |                          ^^^^^^^^^^^^^^
+  invalid character `.` in profile name: `.release-lto`, allowed characters are letters, numbers, underscore, and hyphen
 ",
         )
         .run();
@@ -543,7 +546,9 @@ fn clean_custom_dirname() {
     assert!(!p.build_dir().join("release").is_dir());
 
     // This should clean 'other'
-    p.cargo("clean --profile=other").with_stderr("").run();
+    p.cargo("clean --profile=other")
+        .with_stderr("[REMOVED] [..] files, [..] total")
+        .run();
     assert!(p.build_dir().join("debug").is_dir());
     assert!(!p.build_dir().join("other").is_dir());
 }
@@ -624,6 +629,7 @@ See https://doc.rust-lang.org/cargo/reference/profiles.html for more on configur
             ),
         );
 
+        let highlight = "^".repeat(name.len());
         p.cargo("build")
             .with_status(101)
             .with_stderr(&format!(
@@ -631,11 +637,14 @@ See https://doc.rust-lang.org/cargo/reference/profiles.html for more on configur
 error: failed to parse manifest at `[ROOT]/foo/Cargo.toml`
 
 Caused by:
-  profile name `{}` is reserved
+  TOML parse error at line 6, column 30
+    |
+  6 |                     [profile.{name}]
+    |                              {highlight}
+  profile name `{name}` is reserved
   Please choose a different name.
   See https://doc.rust-lang.org/cargo/reference/profiles.html for more on configuring profiles.
 ",
-                name
             ))
             .run();
     }
@@ -661,6 +670,10 @@ Caused by:
 error: failed to parse manifest at `[ROOT]/foo/Cargo.toml`
 
 Caused by:
+  TOML parse error at line 7, column 25
+    |
+  7 |                [profile.debug]
+    |                         ^^^^^
   profile name `debug` is reserved
   To configure the default development profile, use the name `dev` as in [profile.dev]
   See https://doc.rust-lang.org/cargo/reference/profiles.html for more on configuring profiles.

@@ -117,13 +117,13 @@ use crate::util::errors::CargoResult;
 use crate::util::interning::InternedString;
 use crate::util::{internal, Graph};
 use anyhow::{bail, Context as _};
-use log::debug;
 use serde::de;
 use serde::ser;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::str::FromStr;
+use tracing::debug;
 
 /// The `Cargo.lock` structure.
 #[derive(Serialize, Deserialize, Debug)]
@@ -209,7 +209,7 @@ impl EncodableResolve {
                         debug!("path dependency now missing {} v{}", pkg.name, pkg.version);
                         continue;
                     }
-                    Some(&source) => PackageId::new(&pkg.name, &pkg.version, source)?,
+                    Some(&source) => PackageId::try_new(&pkg.name, &pkg.version, source)?,
                 };
 
                 // If a package has a checksum listed directly on it then record
@@ -299,14 +299,13 @@ impl EncodableResolve {
 
         let mut g = Graph::new();
 
-        for &(ref id, _) in live_pkgs.values() {
+        for (id, _) in live_pkgs.values() {
             g.add(*id);
         }
 
         for &(ref id, pkg) in live_pkgs.values() {
-            let deps = match pkg.dependencies {
-                Some(ref deps) => deps,
-                None => continue,
+            let Some(ref deps) = pkg.dependencies else {
+                continue;
             };
 
             for edge in deps.iter() {
@@ -338,13 +337,12 @@ impl EncodableResolve {
         let mut to_remove = Vec::new();
         for (k, v) in metadata.iter().filter(|p| p.0.starts_with(prefix)) {
             to_remove.push(k.to_string());
-            let k = &k[prefix.len()..];
+            let k = k.strip_prefix(prefix).unwrap();
             let enc_id: EncodablePackageId = k
                 .parse()
                 .with_context(|| internal("invalid encoding of checksum in lockfile"))?;
-            let id = match lookup_id(&enc_id) {
-                Some(id) => id,
-                _ => continue,
+            let Some(id) = lookup_id(&enc_id) else {
+                continue;
             };
 
             let v = if v == "<none>" {
@@ -367,7 +365,7 @@ impl EncodableResolve {
         let mut unused_patches = Vec::new();
         for pkg in self.patch.unused {
             let id = match pkg.source.as_deref().or_else(|| path_deps.get(&pkg.name)) {
-                Some(&src) => PackageId::new(&pkg.name, &pkg.version, src)?,
+                Some(&src) => PackageId::try_new(&pkg.name, &pkg.version, src)?,
                 None => continue,
             };
             unused_patches.push(id);
@@ -437,7 +435,7 @@ fn build_path_deps(ws: &Workspace<'_>) -> CargoResult<HashMap<String, SourceId>>
             build_dep(dep, ws, &mut ret, &mut visited);
         }
     }
-    for &(_, ref dep) in ws.root_replace() {
+    for (_, dep) in ws.root_replace() {
         build_dep(dep, ws, &mut ret, &mut visited);
     }
 
@@ -468,10 +466,7 @@ fn build_path_deps(ws: &Workspace<'_>) -> CargoResult<HashMap<String, SourceId>>
             Ok(p) => p.join("Cargo.toml"),
             Err(_) => return,
         };
-        let pkg = match ws.load(&path) {
-            Ok(p) => p,
-            Err(_) => return,
-        };
+        let Ok(pkg) = ws.load(&path) else { return };
         ret.insert(pkg.name().to_string(), pkg.package_id().source_id());
         visited.insert(pkg.package_id().source_id());
         build_pkg(&pkg, ws, ret, visited);
@@ -601,8 +596,8 @@ impl FromStr for EncodablePackageId {
         let version = s.next();
         let source_id = match s.next() {
             Some(s) => {
-                if s.starts_with('(') && s.ends_with(')') {
-                    Some(SourceId::from_url(&s[1..s.len() - 1])?)
+                if let Some(s) = s.strip_prefix('(').and_then(|s| s.strip_suffix(')')) {
+                    Some(SourceId::from_url(s)?)
                 } else {
                     anyhow::bail!("invalid serialized PackageId")
                 }
@@ -781,7 +776,7 @@ pub fn encodable_package_id(
             }
         }
     }
-    let mut source = encodable_source_id(id_to_encode.with_precise(None), resolve_version);
+    let mut source = encodable_source_id(id_to_encode.without_precise(), resolve_version);
     if let Some(counts) = &state.counts {
         let version_counts = &counts[&id.name()];
         if version_counts[&id.version()] == 1 {

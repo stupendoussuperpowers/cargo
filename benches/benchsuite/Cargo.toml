@@ -1,6 +1,7 @@
 [package]
 name = "benchsuite"
 version = "0.0.0"
+rust-version.workspace = true
 edition.workspace = true
 license.workspace = true
 homepage = "https://github.com/rust-lang/cargo"
@@ -10,8 +11,10 @@ publish = false
 
 [dependencies]
 cargo.workspace = true
+cargo-util.workspace = true
 criterion.workspace = true
 flate2.workspace = true
+rand.workspace = true
 tar.workspace = true
 url.workspace = true
 
@@ -25,3 +28,10 @@ harness = false
 [[bench]]
 name = "workspace_initialization"
 harness = false
+
+[[bench]]
+name = "global_cache_tracker"
+harness = false
+
+[lints]
+workspace = true

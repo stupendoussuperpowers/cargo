@@ -295,7 +295,8 @@ fn allow_features_to_rustc() {
         .file(
             "src/lib.rs",
             r#"
-                #![feature(test_2018_feature)]
+                #![allow(internal_features)]
+                #![feature(rustc_attrs)]
             "#,
         )
         .build();
@@ -306,7 +307,7 @@ fn allow_features_to_rustc() {
         .with_stderr_contains("[..]E0725[..]")
         .run();
 
-    p.cargo("-Zallow-features=test_2018_feature check")
+    p.cargo("-Zallow-features=rustc_attrs check")
         .masquerade_as_nightly_cargo(&["allow-features"])
         .with_stderr(
             "\
@@ -593,7 +594,13 @@ fn z_flags_rejected() {
     p.cargo("check -Zarg")
         .masquerade_as_nightly_cargo(&["test-dummy-unstable"])
         .with_status(101)
-        .with_stderr("error: unknown `-Z` flag specified: arg")
+        .with_stderr(
+            r#"error: unknown `-Z` flag specified: arg
+
+For available unstable features, see https://doc.rust-lang.org/nightly/cargo/reference/unstable.html
+If you intended to use an unstable rustc feature, try setting `RUSTFLAGS="-Zarg"`
+"#,
+        )
         .run();
 
     p.cargo("check -Zprint-im-a-teapot")
@@ -675,8 +682,11 @@ fn wrong_position() {
 error: failed to parse manifest at [..]
 
 Caused by:
-  cargo-features = [\"test-dummy-unstable\"] was found in the wrong location: it \
-  should be set at the top of Cargo.toml before any tables
+  TOML parse error at line 5, column 34
+    |
+  5 |                 cargo-features = [\"test-dummy-unstable\"]
+    |                                  ^^^^^^^^^^^^^^^^^^^^^^^
+  the field `cargo-features` should be set at the top of Cargo.toml before any tables
 ",
         )
         .run();

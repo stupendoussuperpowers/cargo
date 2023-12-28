@@ -34,7 +34,7 @@ fn modifying_and_moving() {
         )
         .run();
 
-    p.cargo("build").with_stdout("").run();
+    p.cargo("build").with_stderr("[FINISHED] [..]").run();
     p.root().move_into_the_past();
     p.root().join("target").move_into_the_past();
 
@@ -223,7 +223,7 @@ fn changing_lib_features_caches_targets() {
         .with_stderr("[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]")
         .run();
 
-    p.cargo("build").with_stdout("").run();
+    p.cargo("build").with_stderr("[FINISHED] [..]").run();
 
     p.cargo("build --features foo")
         .with_stderr("[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]")
@@ -658,7 +658,7 @@ fn rerun_if_changed_in_dep() {
             "a/build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rerun-if-changed=build.rs");
+                    println!("cargo::rerun-if-changed=build.rs");
                 }
             "#,
         )
@@ -666,7 +666,7 @@ fn rerun_if_changed_in_dep() {
         .build();
 
     p.cargo("build").run();
-    p.cargo("build").with_stdout("").run();
+    p.cargo("build").with_stderr("[FINISHED] [..]").run();
 }
 
 #[cargo_test]
@@ -1522,7 +1522,7 @@ fn bust_patched_dep() {
         sleep_ms(1000);
     }
 
-    p.change_file("reg1new/src/lib.rs", "");
+    p.change_file("reg1new/src/lib.rs", "// modified");
     if is_coarse_mtime() {
         sleep_ms(1000);
     }
@@ -1730,8 +1730,8 @@ fn dirty_both_lib_and_test() {
                             .success(),
                         "slib build failed"
                     );
-                    println!("cargo:rustc-link-lib=slib");
-                    println!("cargo:rustc-link-search={}", out_dir.display());
+                    println!("cargo::rustc-link-lib=slib");
+                    println!("cargo::rustc-link-search={}", out_dir.display());
                 }
             "#,
         )
@@ -1772,7 +1772,7 @@ fn script_fails_stay_dirty() {
             r#"
                 mod helper;
                 fn main() {
-                    println!("cargo:rerun-if-changed=build.rs");
+                    println!("cargo::rerun-if-changed=build.rs");
                     helper::doit();
                 }
             "#,
@@ -1810,7 +1810,7 @@ fn simulated_docker_deps_stay_cached() {
             "build.rs",
             r#"
             fn main() {
-                println!("cargo:rerun-if-env-changed=SOMEVAR");
+                println!("cargo::rerun-if-env-changed=SOMEVAR");
             }
             "#,
         )
@@ -1821,7 +1821,7 @@ fn simulated_docker_deps_stay_cached() {
             "build.rs",
             r#"
             fn main() {
-                println!("cargo:rerun-if-changed=build.rs");
+                println!("cargo::rerun-if-changed=build.rs");
             }
             "#,
         )
@@ -2107,7 +2107,7 @@ fn move_target_directory_with_path_deps() {
                 use std::path::Path;
 
                 fn main() {
-                    println!("cargo:rerun-if-changed=build.rs");
+                    println!("cargo::rerun-if-changed=build.rs");
                     let out_dir = env::var("OUT_DIR").unwrap();
                     let dest_path = Path::new(&out_dir).join("hello.rs");
                     fs::write(&dest_path, r#"
@@ -2148,9 +2148,9 @@ fn rerun_if_changes() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rerun-if-env-changed=FOO");
+                    println!("cargo::rerun-if-env-changed=FOO");
                     if std::env::var("FOO").is_ok() {
-                        println!("cargo:rerun-if-env-changed=BAR");
+                        println!("cargo::rerun-if-env-changed=BAR");
                     }
                 }
             "#,
@@ -2648,7 +2648,7 @@ fn env_build_script_no_rebuild() {
             "build.rs",
             r#"
                 fn main() {
-                    println!("cargo:rustc-env=FOO=bar");
+                    println!("cargo::rustc-env=FOO=bar");
                 }
             "#,
         )
@@ -2786,7 +2786,7 @@ fn verify_source_before_recompile() {
         "vendor/bar/src/lib.rs",
         r#"compile_error!("You shall not pass!");"#,
     );
-    // Should ignore modifed sources without any recompile.
+    // Should ignore modified sources without any recompile.
     p.cargo("check --verbose")
         .with_stderr(
             "\
@@ -2799,7 +2799,7 @@ fn verify_source_before_recompile() {
 
     // Add a `RUSTFLAGS` to trigger a recompile.
     //
-    // Cargo should refuse to build because of checksum verfication failure.
+    // Cargo should refuse to build because of checksum verification failure.
     // Cargo shouldn't recompile dependency `bar`.
     p.cargo("check --verbose")
         .env("RUSTFLAGS", "-W warnings")

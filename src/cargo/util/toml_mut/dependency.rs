@@ -25,6 +25,9 @@ pub struct Dependency {
     /// Whether the dependency is opted-in with a feature flag.
     pub optional: Option<bool>,
 
+    /// Whether the dependency is marked as public.
+    pub public: Option<bool>,
+
     /// List of features to add (or None to keep features unchanged).
     pub features: Option<IndexSet<String>>,
     /// Whether default features are enabled.
@@ -48,6 +51,7 @@ impl Dependency {
         Self {
             name: name.into(),
             optional: None,
+            public: None,
             features: None,
             default_features: None,
             inherited_features: None,
@@ -161,6 +165,11 @@ impl Dependency {
     /// Get whether the dep is optional.
     pub fn optional(&self) -> Option<bool> {
         self.optional
+    }
+
+    /// Get whether the dep is public.
+    pub fn public(&self) -> Option<bool> {
+        self.public
     }
 
     /// Get the SourceID for this dependency.
@@ -325,16 +334,18 @@ impl Dependency {
             };
 
             let optional = table.get("optional").and_then(|v| v.as_bool());
+            let public = table.get("public").and_then(|v| v.as_bool());
 
             let dep = Self {
                 name,
-                rename,
+                optional,
+                public,
+                features,
+                default_features,
+                inherited_features: None,
                 source: Some(source),
                 registry,
-                default_features,
-                features,
-                optional,
-                inherited_features: None,
+                rename,
             };
             Ok(dep)
         } else {
@@ -366,6 +377,7 @@ impl Dependency {
             crate_root.display()
         );
         let table: toml_edit::Item = match (
+            self.public.unwrap_or(false),
             self.optional.unwrap_or(false),
             self.features.as_ref(),
             self.default_features.unwrap_or(true),
@@ -376,20 +388,21 @@ impl Dependency {
             // Extra short when version flag only
             (
                 false,
+                false,
                 None,
                 true,
                 Some(Source::Registry(RegistrySource { version: v })),
                 None,
                 None,
             ) => toml_edit::value(v),
-            (false, None, true, Some(Source::Workspace(WorkspaceSource {})), None, None) => {
+            (false, false, None, true, Some(Source::Workspace(WorkspaceSource {})), None, None) => {
                 let mut table = toml_edit::InlineTable::default();
                 table.set_dotted(true);
                 table.insert("workspace", true.into());
                 toml_edit::value(toml_edit::Value::InlineTable(table))
             }
             // Other cases are represented as an inline table
-            (_, _, _, _, _, _) => {
+            (_, _, _, _, _, _, _) => {
                 let mut table = toml_edit::InlineTable::default();
 
                 match &self.source {
@@ -442,6 +455,9 @@ impl Dependency {
                 if let Some(v) = self.optional {
                     table.insert("optional", v.into());
                 }
+                if let Some(v) = self.public {
+                    table.insert("public", v.into());
+                }
 
                 toml_edit::value(toml_edit::Value::InlineTable(table))
             }
@@ -464,7 +480,7 @@ impl Dependency {
         } else if let Some(table) = item.as_table_like_mut() {
             match &self.source {
                 Some(Source::Registry(src)) => {
-                    table.insert("version", toml_edit::value(src.version.as_str()));
+                    overwrite_value(table, "version", src.version.as_str());
 
                     for key in ["path", "git", "branch", "tag", "rev", "workspace"] {
                         table.remove(key);
@@ -472,9 +488,9 @@ impl Dependency {
                 }
                 Some(Source::Path(src)) => {
                     let relpath = path_field(crate_root, &src.path);
-                    table.insert("path", toml_edit::value(relpath));
+                    overwrite_value(table, "path", relpath);
                     if let Some(r) = src.version.as_deref() {
-                        table.insert("version", toml_edit::value(r));
+                        overwrite_value(table, "version", r);
                     } else {
                         table.remove("version");
                     }
@@ -484,24 +500,24 @@ impl Dependency {
                     }
                 }
                 Some(Source::Git(src)) => {
-                    table.insert("git", toml_edit::value(src.git.as_str()));
+                    overwrite_value(table, "git", src.git.as_str());
                     if let Some(branch) = src.branch.as_deref() {
-                        table.insert("branch", toml_edit::value(branch));
+                        overwrite_value(table, "branch", branch);
                     } else {
                         table.remove("branch");
                     }
                     if let Some(tag) = src.tag.as_deref() {
-                        table.insert("tag", toml_edit::value(tag));
+                        overwrite_value(table, "tag", tag);
                     } else {
                         table.remove("tag");
                     }
                     if let Some(rev) = src.rev.as_deref() {
-                        table.insert("rev", toml_edit::value(rev));
+                        overwrite_value(table, "rev", rev);
                     } else {
                         table.remove("rev");
                     }
                     if let Some(r) = src.version.as_deref() {
-                        table.insert("version", toml_edit::value(r));
+                        overwrite_value(table, "version", r);
                     } else {
                         table.remove("version");
                     }
@@ -511,7 +527,7 @@ impl Dependency {
                     }
                 }
                 Some(Source::Workspace(_)) => {
-                    table.insert("workspace", toml_edit::value(true));
+                    overwrite_value(table, "workspace", true);
                     table.set_dotted(true);
                     key.fmt();
                     for key in [
@@ -533,7 +549,7 @@ impl Dependency {
             }
             if table.contains_key("version") {
                 if let Some(r) = self.registry.as_deref() {
-                    table.insert("registry", toml_edit::value(r));
+                    overwrite_value(table, "registry", r);
                 } else {
                     table.remove("registry");
                 }
@@ -542,11 +558,11 @@ impl Dependency {
             }
 
             if self.rename.is_some() {
-                table.insert("package", toml_edit::value(self.name.as_str()));
+                overwrite_value(table, "package", self.name.as_str());
             }
             match self.default_features {
                 Some(v) => {
-                    table.insert("default-features", toml_edit::value(v));
+                    overwrite_value(table, "default-features", v);
                 }
                 None => {
                     table.remove("default-features");
@@ -564,27 +580,47 @@ impl Dependency {
                     })
                     .unwrap_or_default();
                 features.extend(new_features.iter().map(|s| s.as_str()));
-                let features = toml_edit::value(features.into_iter().collect::<toml_edit::Value>());
+                let features = features.into_iter().collect::<toml_edit::Value>();
                 table.set_dotted(false);
-                table.insert("features", features);
+                overwrite_value(table, "features", features);
             } else {
                 table.remove("features");
             }
             match self.optional {
                 Some(v) => {
                     table.set_dotted(false);
-                    table.insert("optional", toml_edit::value(v));
+                    overwrite_value(table, "optional", v);
                 }
                 None => {
                     table.remove("optional");
                 }
             }
-
-            table.fmt();
+            match self.public {
+                Some(v) => {
+                    table.set_dotted(false);
+                    overwrite_value(table, "public", v);
+                }
+                None => {
+                    table.remove("public");
+                }
+            }
         } else {
             unreachable!("Invalid dependency type: {}", item.type_name());
         }
     }
+}
+
+fn overwrite_value(
+    table: &mut dyn toml_edit::TableLike,
+    key: &str,
+    value: impl Into<toml_edit::Value>,
+) {
+    let mut value = value.into();
+    let existing = table.entry(key).or_insert_with(|| Default::default());
+    if let Some(existing_value) = existing.as_value() {
+        *value.decor_mut() = existing_value.decor().clone();
+    }
+    *existing = toml_edit::Item::Value(value);
 }
 
 fn invalid_type(dep: &str, key: &str, actual: &str, expected: &str) -> anyhow::Error {

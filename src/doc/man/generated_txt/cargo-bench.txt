@@ -27,7 +27,8 @@ DESCRIPTION
        special executable by linking your code with libtest. The executable
        automatically runs all functions annotated with the #[bench] attribute.
        Cargo passes the --bench flag to the test harness to tell it to run only
-       benchmarks.
+       benchmarks, regardless of whether the harness is libtest or a custom
+       harness.
 
        The libtest harness may be disabled by setting harness = false in the
        target manifest settings, in which case your code will need to provide
@@ -235,7 +236,7 @@ OPTIONS
            documentation for more details.
 
        --profile name
-           Benchmark with the given profile. See the the reference
+           Benchmark with the given profile. See the reference
            <https://doc.rust-lang.org/cargo/reference/profiles.html> for more
            details on profiles.
 
@@ -413,10 +414,14 @@ OPTIONS
            If a string default is provided, it sets the value back to defaults.
            Should not be 0.
 
-       --keep-going
-           Build as many crates in the dependency graph as possible, rather
-           than aborting the build on the first one that fails to build.
-           Unstable, requires -Zunstable-options.
+       While cargo bench involves compilation, it does not provide a
+       --keep-going flag. Use --no-fail-fast to run as many benchmarks as
+       possible without stopping at the first failure. To “compile” as many
+       benchmarks as possible, use --benches to build benchmark binaries
+       separately. For example:
+
+           cargo build --benches --release --keep-going
+           cargo bench --no-fail-fast
 
 ENVIRONMENT
        See the reference

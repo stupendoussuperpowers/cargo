@@ -11,7 +11,6 @@ use anyhow::{anyhow, Context as _};
 use cargo_util::{paths, ProcessBuilder};
 use curl::easy::List;
 use git2::{self, ErrorClass, ObjectType, Oid};
-use log::{debug, info};
 use serde::ser;
 use serde::Serialize;
 use std::borrow::Cow;
@@ -21,6 +20,7 @@ use std::process::Command;
 use std::str;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+use tracing::{debug, info};
 use url::Url;
 
 /// A file indicates that if present, `git reset` has been done and a repo
@@ -123,7 +123,7 @@ impl GitRemote {
 
             let resolved_commit_hash = match locked_rev {
                 Some(rev) => db.contains(rev).then_some(rev),
-                None => reference.resolve(&db.repo).ok(),
+                None => resolve_ref(reference, &db.repo).ok(),
             };
             if let Some(rev) = resolved_commit_hash {
                 return Ok((db, rev));
@@ -148,7 +148,7 @@ impl GitRemote {
         .with_context(|| format!("failed to clone into: {}", into.display()))?;
         let rev = match locked_rev {
             Some(rev) => rev,
-            None => reference.resolve(&repo)?,
+            None => resolve_ref(reference, &repo)?,
         };
 
         Ok((
@@ -207,56 +207,54 @@ impl GitDatabase {
         self.repo.revparse_single(&oid.to_string()).is_ok()
     }
 
-    /// [`GitReference::resolve`]s this reference with this database.
+    /// [`resolve_ref`]s this reference with this database.
     pub fn resolve(&self, r: &GitReference) -> CargoResult<git2::Oid> {
-        r.resolve(&self.repo)
+        resolve_ref(r, &self.repo)
     }
 }
 
-impl GitReference {
-    /// Resolves self to an object ID with objects the `repo` currently has.
-    pub fn resolve(&self, repo: &git2::Repository) -> CargoResult<git2::Oid> {
-        let id = match self {
-            // Note that we resolve the named tag here in sync with where it's
-            // fetched into via `fetch` below.
-            GitReference::Tag(s) => (|| -> CargoResult<git2::Oid> {
-                let refname = format!("refs/remotes/origin/tags/{}", s);
-                let id = repo.refname_to_id(&refname)?;
-                let obj = repo.find_object(id, None)?;
-                let obj = obj.peel(ObjectType::Commit)?;
-                Ok(obj.id())
-            })()
-            .with_context(|| format!("failed to find tag `{}`", s))?,
+/// Resolves [`GitReference`] to an object ID with objects the `repo` currently has.
+pub fn resolve_ref(gitref: &GitReference, repo: &git2::Repository) -> CargoResult<git2::Oid> {
+    let id = match gitref {
+        // Note that we resolve the named tag here in sync with where it's
+        // fetched into via `fetch` below.
+        GitReference::Tag(s) => (|| -> CargoResult<git2::Oid> {
+            let refname = format!("refs/remotes/origin/tags/{}", s);
+            let id = repo.refname_to_id(&refname)?;
+            let obj = repo.find_object(id, None)?;
+            let obj = obj.peel(ObjectType::Commit)?;
+            Ok(obj.id())
+        })()
+        .with_context(|| format!("failed to find tag `{}`", s))?,
 
-            // Resolve the remote name since that's all we're configuring in
-            // `fetch` below.
-            GitReference::Branch(s) => {
-                let name = format!("origin/{}", s);
-                let b = repo
-                    .find_branch(&name, git2::BranchType::Remote)
-                    .with_context(|| format!("failed to find branch `{}`", s))?;
-                b.get()
-                    .target()
-                    .ok_or_else(|| anyhow::format_err!("branch `{}` did not have a target", s))?
-            }
+        // Resolve the remote name since that's all we're configuring in
+        // `fetch` below.
+        GitReference::Branch(s) => {
+            let name = format!("origin/{}", s);
+            let b = repo
+                .find_branch(&name, git2::BranchType::Remote)
+                .with_context(|| format!("failed to find branch `{}`", s))?;
+            b.get()
+                .target()
+                .ok_or_else(|| anyhow::format_err!("branch `{}` did not have a target", s))?
+        }
 
-            // We'll be using the HEAD commit
-            GitReference::DefaultBranch => {
-                let head_id = repo.refname_to_id("refs/remotes/origin/HEAD")?;
-                let head = repo.find_object(head_id, None)?;
-                head.peel(ObjectType::Commit)?.id()
-            }
+        // We'll be using the HEAD commit
+        GitReference::DefaultBranch => {
+            let head_id = repo.refname_to_id("refs/remotes/origin/HEAD")?;
+            let head = repo.find_object(head_id, None)?;
+            head.peel(ObjectType::Commit)?.id()
+        }
 
-            GitReference::Rev(s) => {
-                let obj = repo.revparse_single(s)?;
-                match obj.as_tag() {
-                    Some(tag) => tag.target_id(),
-                    None => obj.id(),
-                }
+        GitReference::Rev(s) => {
+            let obj = repo.revparse_single(s)?;
+            match obj.as_tag() {
+                Some(tag) => tag.target_id(),
+                None => obj.id(),
             }
-        };
-        Ok(id)
-    }
+        }
+    };
+    Ok(id)
 }
 
 impl<'a> GitCheckout<'a> {
@@ -264,7 +262,7 @@ impl<'a> GitCheckout<'a> {
     /// is done. Use [`GitCheckout::is_fresh`] to check.
     ///
     /// * The `database` is where this checkout is from.
-    /// * The `repo` will be the checked out Git repoistory.
+    /// * The `repo` will be the checked out Git repository.
     fn new(
         database: &'a GitDatabase,
         revision: git2::Oid,
@@ -394,7 +392,7 @@ impl<'a> GitCheckout<'a> {
     fn update_submodules(&self, cargo_config: &Config) -> CargoResult<()> {
         return update_submodules(&self.repo, cargo_config, self.remote_url().as_str());
 
-        /// Recusive helper for [`GitCheckout::update_submodules`].
+        /// Recursive helper for [`GitCheckout::update_submodules`].
         fn update_submodules(
             repo: &git2::Repository,
             cargo_config: &Config,
@@ -444,9 +442,8 @@ impl<'a> GitCheckout<'a> {
 
             // A submodule which is listed in .gitmodules but not actually
             // checked out will not have a head id, so we should ignore it.
-            let head = match child.head_id() {
-                Some(head) => head,
-                None => return Ok(()),
+            let Some(head) = child.head_id() else {
+                return Ok(());
             };
 
             // If the submodule hasn't been checked out yet, we need to
@@ -1087,7 +1084,7 @@ pub fn fetch(
                     debug!("fetch failed: {}", err);
 
                     if !repo_reinitialized.load(Ordering::Relaxed)
-                        // We check for errors that could occour if the configuration, refs or odb files are corrupted.
+                        // We check for errors that could occur if the configuration, refs or odb files are corrupted.
                         // We don't check for errors related to writing as `gitoxide` is expected to create missing leading
                         // folder before writing files into it, or else not even open a directory as git repository (which is
                         // also handled here).
@@ -1313,28 +1310,26 @@ fn maybe_gc_repo(repo: &mut git2::Repository, config: &Config) -> CargoResult<()
 /// filenames, so they never get cleaned up.
 fn clean_repo_temp_files(repo: &git2::Repository) {
     let path = repo.path().join("objects/pack/pack_git2_*");
-    let pattern = match path.to_str() {
-        Some(p) => p,
-        None => {
-            log::warn!("cannot convert {path:?} to a string");
-            return;
-        }
+    let Some(pattern) = path.to_str() else {
+        tracing::warn!("cannot convert {path:?} to a string");
+        return;
     };
-    let paths = match glob::glob(pattern) {
-        Ok(paths) => paths,
-        Err(_) => return,
+    let Ok(paths) = glob::glob(pattern) else {
+        return;
     };
     for path in paths {
         if let Ok(path) = path {
             match paths::remove_file(&path) {
-                Ok(_) => log::debug!("removed stale temp git file {path:?}"),
-                Err(e) => log::warn!("failed to remove {path:?} while cleaning temp files: {e}"),
+                Ok(_) => tracing::debug!("removed stale temp git file {path:?}"),
+                Err(e) => {
+                    tracing::warn!("failed to remove {path:?} while cleaning temp files: {e}")
+                }
             }
         }
     }
 }
 
-/// Reinitializes a given Git repository. This is useful when a Git repoistory
+/// Reinitializes a given Git repository. This is useful when a Git repository
 /// seems corrupted and we want to start over.
 fn reinitialize(repo: &mut git2::Repository) -> CargoResult<()> {
     // Here we want to drop the current repository object pointed to by `repo`,
@@ -1407,7 +1402,7 @@ fn github_fast_path(
         return Ok(FastPathRev::Indeterminate);
     }
 
-    let local_object = reference.resolve(repo).ok();
+    let local_object = resolve_ref(reference, repo).ok();
 
     let github_branch_name = match reference {
         GitReference::Branch(branch) => branch,

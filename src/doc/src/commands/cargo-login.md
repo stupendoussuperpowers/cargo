@@ -2,18 +2,27 @@
 
 ## NAME
 
-cargo-login --- Save an API token from the registry locally
+cargo-login --- Log in to a registry
 
 ## SYNOPSIS
 
-`cargo login` [_options_] [_token_]
+`cargo login` [_options_] [_token_] [`--` _args_]
 
 ## DESCRIPTION
 
-This command will save the API token to disk so that commands that require
-authentication, such as [cargo-publish(1)](cargo-publish.html), will be automatically
-authenticated. The token is saved in `$CARGO_HOME/credentials.toml`. `CARGO_HOME`
-defaults to `.cargo` in your home directory.
+This command will run a credential provider to save a token so that commands
+that require authentication, such as [cargo-publish(1)](cargo-publish.html), will be
+automatically authenticated.
+
+All the arguments following the two dashes (`--`) are passed to the credential provider.
+
+For the default `cargo:token` credential provider, the token is saved
+in `$CARGO_HOME/credentials.toml`. `CARGO_HOME` defaults to `.cargo`
+in your home directory.
+
+If a registry has a credential-provider specified, it will be used. Otherwise,
+the providers from the config value `registry.global-credential-providers` will
+be attempted, starting from the end of the list.
 
 If the _token_ argument is not specified, it will be read from stdin.
 
@@ -31,7 +40,6 @@ Take care to keep the token secret, it should not be shared with anyone else.
 files</a>. If not specified, the default registry is used,
 which is defined by the <code>registry.default</code> config key which defaults to
 <code>crates-io</code>.</dd>
-
 
 </dl>
 
@@ -63,7 +71,6 @@ terminal.</li>
 </ul>
 <p>May also be specified with the <code>term.color</code>
 <a href="../reference/config.html">config value</a>.</dd>
-
 
 </dl>
 
@@ -107,24 +114,25 @@ requires the <code>-Z unstable-options</code> flag to enable (see
 
 </dl>
 
-
 ## ENVIRONMENT
 
 See [the reference](../reference/environment-variables.html) for
 details on environment variables that Cargo reads.
-
 
 ## EXIT STATUS
 
 * `0`: Cargo succeeded.
 * `101`: Cargo failed to complete.
 
-
 ## EXAMPLES
 
-1. Save the API token to disk:
+1. Save the token for the default registry:
 
        cargo login
+
+2. Save the token for a specific registry:
+
+       cargo login --registry my-registry
 
 ## SEE ALSO
 [cargo(1)](cargo.html), [cargo-logout(1)](cargo-logout.html), [cargo-publish(1)](cargo-publish.html)

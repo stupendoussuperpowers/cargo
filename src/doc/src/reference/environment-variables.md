@@ -1,15 +1,15 @@
-## Environment Variables
+# Environment Variables
 
 Cargo sets and reads a number of environment variables which your code can detect
 or override. Here is a list of the variables Cargo sets, organized by when it interacts
 with them:
 
-### Environment variables Cargo reads
+## Environment variables Cargo reads
 
 You can override these environment variables to change Cargo's behavior on your
 system:
 
-* `CARGO_LOG` --- Cargo uses the [`env_logger`] crate to display debug log messages.
+* `CARGO_LOG` --- Cargo uses the [`tracing`] crate to display debug log messages.
   The `CARGO_LOG` environment variable can be set to enable debug logging,
   with a value such as `trace`, `debug`, or `warn`.
   Usually it is only used during debugging. For more details refer to the
@@ -79,7 +79,7 @@ system:
   [`cargo fmt`](https://github.com/rust-lang/rustfmt) will execute this specified
   `rustfmt` instance instead.
 
-#### Configuration environment variables
+### Configuration environment variables
 
 Cargo reads environment variables for some configuration values.
 See the [configuration chapter][config-env] for more details.
@@ -124,9 +124,12 @@ In summary, the supported environment variables are:
 * `CARGO_PROFILE_<name>_RPATH` --- The rpath linking option, see [`profile.<name>.rpath`].
 * `CARGO_PROFILE_<name>_SPLIT_DEBUGINFO` --- Controls debug file output behavior, see [`profile.<name>.split-debuginfo`].
 * `CARGO_PROFILE_<name>_STRIP` --- Controls stripping of symbols and/or debuginfos, see [`profile.<name>.strip`].
+* `CARGO_REGISTRIES_<name>_CREDENTIAL_PROVIDER` --- Credential provider for a registry, see [`registries.<name>.credential-provider`].
 * `CARGO_REGISTRIES_<name>_INDEX` --- URL of a registry index, see [`registries.<name>.index`].
 * `CARGO_REGISTRIES_<name>_TOKEN` --- Authentication token of a registry, see [`registries.<name>.token`].
+* `CARGO_REGISTRY_CREDENTIAL_PROVIDER` --- Credential provider for [crates.io], see [`registry.credential-provider`].
 * `CARGO_REGISTRY_DEFAULT` --- Default registry for the `--registry` flag, see [`registry.default`].
+* `CARGO_REGISTRY_GLOBAL_CREDENTIAL_PROVIDERS` --- Credential providers for registries that do not have a specific provider defined. See [`registry.global-credential-providers`].
 * `CARGO_REGISTRY_TOKEN` --- Authentication token for [crates.io], see [`registry.token`].
 * `CARGO_TARGET_<triple>_LINKER` --- The linker to use, see [`target.<triple>.linker`]. The triple must be [converted to uppercase and underscores](config.md#environment-variables).
 * `CARGO_TARGET_<triple>_RUNNER` --- The executable runner, see [`target.<triple>.runner`].
@@ -187,9 +190,12 @@ In summary, the supported environment variables are:
 [`profile.<name>.rpath`]: config.md#profilenamerpath
 [`profile.<name>.split-debuginfo`]: config.md#profilenamesplit-debuginfo
 [`profile.<name>.strip`]: config.md#profilenamestrip
+[`registries.<name>.credential-provider`]: config.md#registriesnamecredential-provider
 [`registries.<name>.index`]: config.md#registriesnameindex
 [`registries.<name>.token`]: config.md#registriesnametoken
+[`registry.credential-provider`]: config.md#registrycredential-provider
 [`registry.default`]: config.md#registrydefault
+[`registry.global-credential-providers`]: config.md#registryglobal-credential-providers
 [`registry.token`]: config.md#registrytoken
 [`target.<triple>.linker`]: config.md#targettriplelinker
 [`target.<triple>.runner`]: config.md#targettriplerunner
@@ -200,7 +206,7 @@ In summary, the supported environment variables are:
 [`term.progress.when`]: config.md#termprogresswhen
 [`term.progress.width`]: config.md#termprogresswidth
 
-### Environment variables Cargo sets for crates
+## Environment variables Cargo sets for crates
 
 Cargo exposes these environment variables to your crate when it is compiled.
 Note that this applies for running binaries with `cargo run` and `cargo test`
@@ -259,6 +265,7 @@ corresponding environment variable is set to the empty string, `""`.
   where integration tests or benchmarks are free to put any data needed by
   the tests/benches. Cargo initially creates this directory but doesn't
   manage its content in any way, this is the responsibility of the test code.
+* `CARGO_RUSTC_CURRENT_DIR` --- This is a path that `rustc` is invoked from **(nightly only)**.
 
 [Cargo target]: cargo-targets.md
 [binaries]: cargo-targets.md#binaries
@@ -266,7 +273,7 @@ corresponding environment variable is set to the empty string, `""`.
 [integration test]: cargo-targets.md#integration-tests
 [`env` macro]: ../../std/macro.env.html
 
-#### Dynamic library paths
+### Dynamic library paths
 
 Cargo also sets the dynamic library path when compiling and running binaries
 with commands like `cargo run` and `cargo test`. This helps with locating
@@ -294,7 +301,7 @@ Cargo includes the following paths:
 * The rustc sysroot library path. This generally is not important to most
   users.
 
-### Environment variables Cargo sets for build scripts
+## Environment variables Cargo sets for build scripts
 
 Cargo sets several environment variables when build scripts are run. Because these variables
 are not yet set when the build script is compiled, the above example using `env!` won't work
@@ -346,6 +353,8 @@ let out_dir = env::var("OUT_DIR").unwrap();
     * `CARGO_CFG_TARGET_POINTER_WIDTH=64` --- The CPU [pointer width].
     * `CARGO_CFG_TARGET_ENDIAN=little` --- The CPU [target endianness].
     * `CARGO_CFG_TARGET_FEATURE=mmx,sse` --- List of CPU [target features] enabled.
+  > Note that different [target triples][Target Triple] have different sets of `cfg` values,
+  > hence variables present in one target triple might not be available in the other.
 * `OUT_DIR` --- the folder in which all output and intermediate artifacts should
               be placed. This folder is inside the build directory for the
               package being built, and it is unique for the package in question.
@@ -389,8 +398,8 @@ let out_dir = env::var("OUT_DIR").unwrap();
   the environment; scripts should use `CARGO_ENCODED_RUSTFLAGS` instead.
 * `CARGO_PKG_<var>` --- The package information variables, with the same names and values as are [provided during crate building][variables set for crates].
 
-[`env_logger`]: https://docs.rs/env_logger
-[debug logging]: https://doc.crates.io/contrib/architecture/console.html#debug-logging
+[`tracing`]: https://docs.rs/tracing
+[debug logging]: https://doc.crates.io/contrib/implementation/debugging.html#logging
 [unix-like platforms]: ../../reference/conditional-compilation.html#unix-and-windows
 [windows-like platforms]: ../../reference/conditional-compilation.html#unix-and-windows
 [target family]: ../../reference/conditional-compilation.html#target_family
@@ -411,7 +420,7 @@ let out_dir = env::var("OUT_DIR").unwrap();
 [`dev`]: profiles.md#dev
 [`release`]: profiles.md#release
 
-### Environment variables Cargo sets for 3rd party subcommands
+## Environment variables Cargo sets for 3rd party subcommands
 
 Cargo exposes this environment variable to 3rd party subcommands
 (ie. programs named `cargo-foobar` placed in `$PATH`):

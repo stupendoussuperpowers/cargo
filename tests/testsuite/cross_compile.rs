@@ -411,92 +411,6 @@ fn linker() {
         .run();
 }
 
-#[cargo_test(nightly, reason = "plugins are unstable")]
-fn plugin_with_extra_dylib_dep() {
-    if cross_compile::disabled() {
-        return;
-    }
-
-    let foo = project()
-        .file(
-            "Cargo.toml",
-            r#"
-                [package]
-                name = "foo"
-                version = "0.0.1"
-                authors = []
-
-                [dependencies.bar]
-                path = "../bar"
-            "#,
-        )
-        .file(
-            "src/main.rs",
-            r#"
-                #![feature(plugin)]
-                #![plugin(bar)]
-
-                fn main() {}
-            "#,
-        )
-        .build();
-    let _bar = project()
-        .at("bar")
-        .file(
-            "Cargo.toml",
-            r#"
-                [package]
-                name = "bar"
-                version = "0.0.1"
-                authors = []
-
-                [lib]
-                name = "bar"
-                plugin = true
-
-                [dependencies.baz]
-                path = "../baz"
-            "#,
-        )
-        .file(
-            "src/lib.rs",
-            r#"
-                #![feature(rustc_private)]
-
-                extern crate baz;
-                extern crate rustc_driver;
-
-                use rustc_driver::plugin::Registry;
-
-                #[no_mangle]
-                pub fn __rustc_plugin_registrar(reg: &mut Registry) {
-                    println!("{}", baz::baz());
-                }
-            "#,
-        )
-        .build();
-    let _baz = project()
-        .at("baz")
-        .file(
-            "Cargo.toml",
-            r#"
-                [package]
-                name = "baz"
-                version = "0.0.1"
-                authors = []
-
-                [lib]
-                name = "baz"
-                crate_type = ["dylib"]
-            "#,
-        )
-        .file("src/lib.rs", "pub fn baz() -> i32 { 1 }")
-        .build();
-
-    let target = cross_compile::alternate();
-    foo.cargo("build --target").arg(&target).run();
-}
-
 #[cargo_test]
 fn cross_tests() {
     if !cross_compile::can_run_on_host() {
@@ -807,7 +721,7 @@ fn build_script_needed_for_host_and_target() {
                 use std::env;
                 fn main() {
                     let target = env::var("TARGET").unwrap();
-                    println!("cargo:rustc-flags=-L /path/to/{}", target);
+                    println!("cargo::rustc-flags=-L /path/to/{}", target);
                 }
             "#,
         )
@@ -1184,7 +1098,10 @@ fn platform_specific_variables_reflected_in_build_scripts() {
                 build = "build.rs"
             "#,
         )
-        .file("d1/build.rs", r#"fn main() { println!("cargo:val=1") }"#)
+        .file(
+            "d1/build.rs",
+            r#"fn main() { println!("cargo::metadata=val=1") }"#,
+        )
         .file("d1/src/lib.rs", "")
         .file(
             "d2/Cargo.toml",
@@ -1197,7 +1114,10 @@ fn platform_specific_variables_reflected_in_build_scripts() {
                 build = "build.rs"
             "#,
         )
-        .file("d2/build.rs", r#"fn main() { println!("cargo:val=1") }"#)
+        .file(
+            "d2/build.rs",
+            r#"fn main() { println!("cargo::metadata=val=1") }"#,
+        )
         .file("d2/src/lib.rs", "")
         .build();
 

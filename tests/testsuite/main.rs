@@ -1,6 +1,6 @@
-// See src/cargo/lib.rs for notes on these lint settings.
-#![warn(rust_2018_idioms)]
-#![allow(clippy::all)]
+#![allow(clippy::disallowed_methods)]
+#![allow(clippy::print_stderr)]
+#![allow(clippy::print_stdout)]
 
 #[macro_use]
 extern crate cargo_test_macro;
@@ -17,6 +17,7 @@ mod build_plan;
 mod build_script;
 mod build_script_env;
 mod build_script_extra_link_arg;
+mod cache_lock;
 mod cache_messages;
 mod cargo;
 mod cargo_add;
@@ -97,6 +98,7 @@ mod git_auth;
 mod git_gc;
 mod git_shallow;
 mod glob_targets;
+mod global_cache_tracker;
 mod help;
 mod https;
 mod inheritable_workspace_fields;
@@ -131,12 +133,12 @@ mod patch;
 mod path;
 mod paths;
 mod pkgid;
-mod plugins;
 mod proc_macro;
 mod profile_config;
 mod profile_custom;
 mod profile_overrides;
 mod profile_targets;
+mod profile_trim_paths;
 mod profiles;
 mod progress;
 mod pub_priv;

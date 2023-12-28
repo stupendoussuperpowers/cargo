@@ -262,7 +262,7 @@ OPTIONS
            --profile option for choosing a specific profile by name.
 
        --profile name
-           Test with the given profile. See the the reference
+           Test with the given profile. See the reference
            <https://doc.rust-lang.org/cargo/reference/profiles.html> for more
            details on profiles.
 
@@ -442,16 +442,19 @@ OPTIONS
            If a string default is provided, it sets the value back to defaults.
            Should not be 0.
 
-       --keep-going
-           Build as many crates in the dependency graph as possible, rather
-           than aborting the build on the first one that fails to build.
-           Unstable, requires -Zunstable-options.
-
        --future-incompat-report
            Displays a future-incompat report for any future-incompatible
            warnings produced during execution of this command
 
            See cargo-report(1)
+
+       While cargo test involves compilation, it does not provide a
+       --keep-going flag. Use --no-fail-fast to run as many tests as possible
+       without stopping at the first failure. To “compile” as many tests as
+       possible, use --tests to build test binaries separately. For example:
+
+           cargo build --tests --keep-going
+           cargo test --tests --no-fail-fast
 
 ENVIRONMENT
        See the reference

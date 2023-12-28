@@ -1,7 +1,4 @@
 # cargo-install(1)
-
-
-
 ## NAME
 
 cargo-install --- Build and install a Rust binary
@@ -28,10 +25,9 @@ The installation root is determined, in order of precedence:
 - `CARGO_HOME` environment variable
 - `$HOME/.cargo`
 
-
 There are multiple sources from which a crate can be installed. The default
-location is crates.io but the `--git`, `--path`, and `--registry` flags can
-change this source. If the source contains more than one package (such as
+source location is crates.io but the `--git`, `--path`, and `--registry` flags
+can change this source. If the source contains more than one package (such as
 crates.io or a git repository with multiple crates) the _crate_ argument is
 required to indicate which crate should be installed.
 
@@ -96,7 +92,7 @@ will be used, beginning discovery at `$PATH/.cargo/config.toml`.
 
 <dt class="option-term" id="option-cargo-install---vers"><a class="option-anchor" href="#option-cargo-install---vers"></a><code>--vers</code> <em>version</em></dt>
 <dt class="option-term" id="option-cargo-install---version"><a class="option-anchor" href="#option-cargo-install---version"></a><code>--version</code> <em>version</em></dt>
-<dd class="option-desc">Specify a version to install. This may be a <a href="../reference/specifying-dependencies.md">version
+<dd class="option-desc">Specify a version to install. This may be a <a href="../reference/specifying-dependencies.html">version
 requirement</a>, like <code>~1.2</code>, to have Cargo
 select the newest version from the given requirement. If the version does not
 have a requirement operator (such as <code>^</code> or <code>~</code>), then it must be in the form
@@ -121,7 +117,7 @@ treated as a caret requirement like Cargo dependencies are.</dd>
 
 
 <dt class="option-term" id="option-cargo-install---path"><a class="option-anchor" href="#option-cargo-install---path"></a><code>--path</code> <em>path</em></dt>
-<dd class="option-desc">Filesystem path to local crate to install.</dd>
+<dd class="option-desc">Filesystem path to local crate to install from.</dd>
 
 
 <dt class="option-term" id="option-cargo-install---list"><a class="option-anchor" href="#option-cargo-install---list"></a><code>--list</code></dt>
@@ -172,10 +168,8 @@ which is defined by the <code>registry.default</code> config key which defaults 
 <code>crates-io</code>.</dd>
 
 
-
 <dt class="option-term" id="option-cargo-install---index"><a class="option-anchor" href="#option-cargo-install---index"></a><code>--index</code> <em>index</em></dt>
 <dd class="option-desc">The URL of the registry index to use.</dd>
-
 
 
 </dl>
@@ -208,7 +202,6 @@ be specified multiple times, which enables all specified features.</dd>
 
 </dl>
 
-
 ### Compilation Options
 
 <dl>
@@ -224,7 +217,6 @@ target artifacts are placed in a separate directory. See the
 <a href="../guide/build-cache.html">build cache</a> documentation for more details.</dd>
 
 
-
 <dt class="option-term" id="option-cargo-install---target-dir"><a class="option-anchor" href="#option-cargo-install---target-dir"></a><code>--target-dir</code> <em>directory</em></dt>
 <dd class="option-desc">Directory for all generated artifacts and intermediate files. May also be
 specified with the <code>CARGO_TARGET_DIR</code> environment variable, or the
@@ -236,7 +228,6 @@ of the local crate unless <code>--target-dir</code>
 is specified.</dd>
 
 
-
 <dt class="option-term" id="option-cargo-install---debug"><a class="option-anchor" href="#option-cargo-install---debug"></a><code>--debug</code></dt>
 <dd class="option-desc">Build with the <code>dev</code> profile instead of the <code>release</code> profile.
 See also the <code>--profile</code> option for choosing a specific profile by name.</dd>
@@ -244,14 +235,12 @@ See also the <code>--profile</code> option for choosing a specific profile by na
 
 <dt class="option-term" id="option-cargo-install---profile"><a class="option-anchor" href="#option-cargo-install---profile"></a><code>--profile</code> <em>name</em></dt>
 <dd class="option-desc">Install with the given profile.
-See the <a href="../reference/profiles.html">the reference</a> for more details on profiles.</dd>
-
+See <a href="../reference/profiles.html">the reference</a> for more details on profiles.</dd>
 
 
 <dt class="option-term" id="option-cargo-install---ignore-rust-version"><a class="option-anchor" href="#option-cargo-install---ignore-rust-version"></a><code>--ignore-rust-version</code></dt>
 <dd class="option-desc">Install the target even if the selected Rust compiler is older than the
 required Rust version as configured in the project’s <code>rust-version</code> field.</dd>
-
 
 
 <dt class="option-term" id="option-cargo-install---timings=fmts"><a class="option-anchor" href="#option-cargo-install---timings=fmts"></a><code>--timings=</code><em>fmts</em></dt>
@@ -269,7 +258,6 @@ and does not provide machine-readable timing data.</li>
 <li><code>json</code> (unstable, requires <code>-Zunstable-options</code>): Emit machine-readable JSON
 information about timing information.</li>
 </ul></dd>
-
 
 
 
@@ -301,7 +289,6 @@ See the <a href="cargo-fetch.html">cargo-fetch(1)</a> command to download depend
 offline.</p>
 <p>May also be specified with the <code>net.offline</code> <a href="../reference/config.html">config value</a>.</dd>
 
-
 </dl>
 
 ### Miscellaneous Options
@@ -316,12 +303,14 @@ parallel jobs to the number of logical CPUs plus provided value. If
 a string <code>default</code> is provided, it sets the value back to defaults.
 Should not be 0.</dd>
 
-
 <dt class="option-term" id="option-cargo-install---keep-going"><a class="option-anchor" href="#option-cargo-install---keep-going"></a><code>--keep-going</code></dt>
 <dd class="option-desc">Build as many crates in the dependency graph as possible, rather than aborting
-the build on the first one that fails to build. Unstable, requires
-<code>-Zunstable-options</code>.</dd>
-
+the build on the first one that fails to build.</p>
+<p>For example if the current package depends on dependencies <code>fails</code> and <code>works</code>,
+one of which fails to build, <code>cargo install -j1</code> may or may not build the
+one that succeeds (depending on which one of the two builds Cargo picked to run
+first), whereas <code>cargo install -j1 --keep-going</code> would definitely run both
+builds, even if the one run first fails.</dd>
 
 </dl>
 
@@ -355,7 +344,6 @@ terminal.</li>
 <a href="../reference/config.html">config value</a>.</dd>
 
 
-
 <dt class="option-term" id="option-cargo-install---message-format"><a class="option-anchor" href="#option-cargo-install---message-format"></a><code>--message-format</code> <em>fmt</em></dt>
 <dd class="option-desc">The output format for diagnostic messages. Can be specified multiple times
 and consists of comma-separated values. Valid values:</p>
@@ -377,7 +365,6 @@ in JSON messages printed, but instead Cargo itself should render the
 JSON diagnostics coming from rustc. Cargo’s own JSON diagnostics and others
 coming from rustc are still emitted. Cannot be used with <code>human</code> or <code>short</code>.</li>
 </ul></dd>
-
 
 
 </dl>
@@ -422,18 +409,15 @@ requires the <code>-Z unstable-options</code> flag to enable (see
 
 </dl>
 
-
 ## ENVIRONMENT
 
 See [the reference](../reference/environment-variables.html) for
 details on environment variables that Cargo reads.
 
-
 ## EXIT STATUS
 
 * `0`: Cargo succeeded.
 * `101`: Cargo failed to complete.
-
 
 ## EXAMPLES
 

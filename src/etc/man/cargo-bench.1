@@ -32,7 +32,7 @@ Benchmarks are built with the \fB\-\-test\fR option to \fBrustc\fR which creates
 special executable by linking your code with libtest. The executable
 automatically runs all functions annotated with the \fB#[bench]\fR attribute.
 Cargo passes the \fB\-\-bench\fR flag to the test harness to tell it to run
-only benchmarks.
+only benchmarks, regardless of whether the harness is libtest or a custom harness.
 .sp
 The libtest harness may be disabled by setting \fBharness = false\fR in the target
 manifest settings, in which case your code will need to provide its own \fBmain\fR
@@ -282,7 +282,7 @@ target artifacts are placed in a separate directory. See the
 \fB\-\-profile\fR \fIname\fR
 .RS 4
 Benchmark with the given profile.
-See the \fIthe reference\fR <https://doc.rust\-lang.org/cargo/reference/profiles.html> for more details on profiles.
+See \fIthe reference\fR <https://doc.rust\-lang.org/cargo/reference/profiles.html> for more details on profiles.
 .RE
 .sp
 \fB\-\-ignore\-rust\-version\fR
@@ -502,11 +502,16 @@ a string \fBdefault\fR is provided, it sets the value back to defaults.
 Should not be 0.
 .RE
 .sp
-\fB\-\-keep\-going\fR
+While \fBcargo bench\fR involves compilation, it does not provide a \fB\-\-keep\-going\fR
+flag. Use \fB\-\-no\-fail\-fast\fR to run as many benchmarks as possible without
+stopping at the first failure. To \[lq]compile\[rq] as many benchmarks as possible, use
+\fB\-\-benches\fR to build benchmark binaries separately. For example:
+.sp
 .RS 4
-Build as many crates in the dependency graph as possible, rather than aborting
-the build on the first one that fails to build. Unstable, requires
-\fB\-Zunstable\-options\fR\&.
+.nf
+cargo build \-\-benches \-\-release \-\-keep\-going
+cargo bench \-\-no\-fail\-fast
+.fi
 .RE
 .SH "ENVIRONMENT"
 See \fIthe reference\fR <https://doc.rust\-lang.org/cargo/reference/environment\-variables.html> for

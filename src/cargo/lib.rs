@@ -1,16 +1,3 @@
-// For various reasons, some idioms are still allow'ed, but we would like to
-// test and enforce them.
-#![warn(rust_2018_idioms)]
-// Due to some of the default clippy lints being somewhat subjective and not
-// necessarily an improvement, we prefer to not use them at this time.
-#![allow(clippy::all)]
-#![warn(clippy::disallowed_methods)]
-#![warn(clippy::self_named_module_files)]
-#![warn(clippy::print_stdout)]
-#![warn(clippy::print_stderr)]
-#![warn(clippy::dbg_macro)]
-#![allow(rustdoc::private_intra_doc_links)]
-
 //! # Cargo as a library
 //!
 //! There are two places you can find API documentation of cargo-the-library,
@@ -20,7 +7,7 @@
 //! - <https://doc.rust-lang.org/nightly/nightly-rustc/cargo>: targeted at cargo contributors
 //!   - Updated on each update of the `cargo` submodule in `rust-lang/rust`
 //!
-//! **WARNING:** Using Cargo as a library has drawbacks, particulary the API is unstable,
+//! **WARNING:** Using Cargo as a library has drawbacks, particularly the API is unstable,
 //! and there is no clear path to stabilize it soon at the time of writing.  See [The Cargo Book:
 //! External tools] for more on this topic.
 //!
@@ -51,8 +38,8 @@
 //!   - [`core::compiler::fingerprint`]:
 //!     The `fingerprint` module contains all the code that handles detecting
 //!     if a crate needs to be recompiled.
-//! - [`core::source`]:
-//!   The [`core::Source`] trait is an abstraction over different sources of packages.
+//! - [`sources::source`]:
+//!   The [`sources::source::Source`] trait is an abstraction over different sources of packages.
 //!   Sources are uniquely identified by a [`core::SourceId`]. Sources are implemented in the [`sources`]
 //!   directory.
 //! - [`util`]:
@@ -75,6 +62,9 @@
 //! - [`cargo-util`](https://crates.io/crates/cargo-util)
 //!   ([nightly docs](https://doc.rust-lang.org/nightly/nightly-rustc/cargo_util)):
 //!   This contains general utility code that is shared between cargo and the testsuite
+//! - [`cargo-util-schemas`](https://crates.io/crates/cargo-util-schemas)
+//!   ([nightly docs](https://doc.rust-lang.org/nightly/nightly-rustc/cargo_util_schemas)):
+//!   This contains the serde schemas for cargo
 //! - [`crates-io`](https://crates.io/crates/crates-io)
 //!   ([nightly docs](https://doc.rust-lang.org/nightly/nightly-rustc/crates_io)):
 //!   This contains code for accessing the crates.io API.
@@ -83,6 +73,11 @@
 //!   This is not directly depended upon with a `path` dependency; cargo uses the version from crates.io.
 //!   It is intended to be versioned and published independently of Rust's release system.
 //!   Whenever a change needs to be made, bump the version in Cargo.toml and `cargo publish` it manually, and then update cargo's `Cargo.toml` to depend on the new version.
+//! - [`rustfix`](https://crates.io/crates/rustfix)
+//!   ([nightly docs](https://doc.rust-lang.org/nightly/nightly-rustc/rustfix)):
+//!   This defines structures that represent fix suggestions from rustc,
+//!   as well as generates "fixed" code from suggestions.
+//!   Operations in `rustfix` are all in memory and won't write to disks.
 //! - [`cargo-test-support`](https://github.com/rust-lang/cargo/tree/master/crates/cargo-test-support)
 //!   ([nightly docs](https://doc.rust-lang.org/nightly/nightly-rustc/cargo_test_support/index.html)):
 //!   This contains a variety of code to support writing tests
@@ -91,9 +86,7 @@
 //!   This is the `#[cargo_test]` proc-macro used by the test suite to define tests.
 //! - [`credential`](https://github.com/rust-lang/cargo/tree/master/credential)
 //!   This subdirectory contains several packages for implementing the
-//!   experimental
-//!   [credential-process](https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#credential-process)
-//!   feature.
+//!   [credential providers](https://doc.rust-lang.org/nightly/cargo/reference/registry-authentication.html).
 //! - [`mdman`](https://github.com/rust-lang/cargo/tree/master/crates/mdman)
 //!   ([nightly docs](https://doc.rust-lang.org/nightly/nightly-rustc/mdman/index.html)):
 //!   This is a utility for generating cargo's man pages. See [Building the man
@@ -108,7 +101,7 @@
 //! Files that interact with cargo include
 //!
 //! - Package
-//!   - `Cargo.toml`: User-written project manifest, loaded with [`util::toml::TomlManifest`] and then
+//!   - `Cargo.toml`: User-written project manifest, loaded with [`util::toml::read_manifest`] and then
 //!     translated to [`core::manifest::Manifest`] which maybe stored in a [`core::Package`].
 //!     - This is editable with [`util::toml_mut::manifest::LocalManifest`]
 //!   - `Cargo.lock`: Generally loaded with [`ops::resolve_ws`] or a variant of it into a [`core::resolver::Resolve`]
@@ -147,7 +140,7 @@
 use crate::core::shell::Verbosity::Verbose;
 use crate::core::Shell;
 use anyhow::Error;
-use log::debug;
+use tracing::debug;
 
 pub use crate::util::errors::{AlreadyPrintedError, InternalError, VerboseError};
 pub use crate::util::{indented_lines, CargoResult, CliError, CliResult, Config};

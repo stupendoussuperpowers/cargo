@@ -7,14 +7,18 @@ use std::rc::Rc;
 use std::task::Poll;
 
 use anyhow::{bail, format_err, Context as _};
+use cargo_util::paths;
 use ops::FilterRule;
 use serde::{Deserialize, Serialize};
 
 use crate::core::compiler::{DirtyReason, Freshness};
 use crate::core::Target;
-use crate::core::{Dependency, FeatureValue, Package, PackageId, QueryKind, Source, SourceId};
+use crate::core::{Dependency, FeatureValue, Package, PackageId, SourceId};
 use crate::ops::{self, CompileFilter, CompileOptions};
+use crate::sources::source::QueryKind;
+use crate::sources::source::Source;
 use crate::sources::PathSource;
+use crate::util::cache_lock::CacheLockMode;
 use crate::util::errors::CargoResult;
 use crate::util::Config;
 use crate::util::{FileLock, Filesystem};
@@ -95,8 +99,10 @@ pub struct CrateListingV1 {
 impl InstallTracker {
     /// Create an InstallTracker from information on disk.
     pub fn load(config: &Config, root: &Filesystem) -> CargoResult<InstallTracker> {
-        let v1_lock = root.open_rw(Path::new(".crates.toml"), config, "crate metadata")?;
-        let v2_lock = root.open_rw(Path::new(".crates2.json"), config, "crate metadata")?;
+        let v1_lock =
+            root.open_rw_exclusive_create(Path::new(".crates.toml"), config, "crate metadata")?;
+        let v2_lock =
+            root.open_rw_exclusive_create(Path::new(".crates2.json"), config, "crate metadata")?;
 
         let v1 = (|| -> CargoResult<_> {
             let mut contents = String::new();
@@ -210,7 +216,7 @@ impl InstallTracker {
                 let precise_equal = if source_id.is_git() {
                     // Git sources must have the exact same hash to be
                     // considered "fresh".
-                    dupe_pkg_id.source_id().precise() == source_id.precise()
+                    dupe_pkg_id.source_id().has_same_precise_as(source_id)
                 } else {
                     true
                 };
@@ -314,6 +320,20 @@ impl InstallTracker {
         self.v1.remove(pkg_id, bins);
         self.v2.remove(pkg_id, bins);
     }
+
+    /// Remove a bin after it successfully had been removed in disk and then save the tracker at last.
+    pub fn remove_bin_then_save(
+        &mut self,
+        pkg_id: PackageId,
+        bin: &str,
+        bin_path: &PathBuf,
+    ) -> CargoResult<()> {
+        paths::remove_file(bin_path)?;
+        self.v1.remove_bin(pkg_id, bin);
+        self.v2.remove_bin(pkg_id, bin);
+        self.save()?;
+        Ok(())
+    }
 }
 
 impl CrateListingV1 {
@@ -349,6 +369,17 @@ impl CrateListingV1 {
         for bin in bins {
             installed.get_mut().remove(bin);
         }
+        if installed.get().is_empty() {
+            installed.remove();
+        }
+    }
+
+    fn remove_bin(&mut self, pkg_id: PackageId, bin: &str) {
+        let mut installed = match self.v1.entry(pkg_id) {
+            btree_map::Entry::Occupied(e) => e,
+            btree_map::Entry::Vacant(..) => panic!("v1 unexpected missing `{}`", pkg_id),
+        };
+        installed.get_mut().remove(bin);
         if installed.get().is_empty() {
             installed.remove();
         }
@@ -463,6 +494,17 @@ impl CrateListingV2 {
         }
     }
 
+    fn remove_bin(&mut self, pkg_id: PackageId, bin: &str) {
+        let mut info_entry = match self.installs.entry(pkg_id) {
+            btree_map::Entry::Occupied(e) => e,
+            btree_map::Entry::Vacant(..) => panic!("v1 unexpected missing `{}`", pkg_id),
+        };
+        info_entry.get_mut().bins.remove(bin);
+        if info_entry.get().bins.is_empty() {
+            info_entry.remove();
+        }
+    }
+
     fn save(&self, lock: &FileLock) -> CargoResult<()> {
         let mut file = lock.file();
         file.seek(SeekFrom::Start(0))?;
@@ -527,6 +569,7 @@ pub fn select_dep_pkg<T>(
     dep: Dependency,
     config: &Config,
     needs_update: bool,
+    current_rust_version: Option<&semver::Version>,
 ) -> CargoResult<Package>
 where
     T: Source,
@@ -534,7 +577,7 @@ where
     // This operation may involve updating some sources or making a few queries
     // which may involve frobbing caches, as a result make sure we synchronize
     // with other global Cargos
-    let _lock = config.acquire_package_cache_lock()?;
+    let _lock = config.acquire_package_cache_lock(CacheLockMode::DownloadExclusive)?;
 
     if needs_update {
         source.invalidate_cache();
@@ -546,16 +589,68 @@ where
             Poll::Pending => source.block_until_ready()?,
         }
     };
-    match deps.iter().map(|p| p.package_id()).max() {
-        Some(pkgid) => {
-            let pkg = Box::new(source).download_now(pkgid, config)?;
+    match deps
+        .iter()
+        .map(|s| s.as_summary())
+        .max_by_key(|p| p.package_id())
+    {
+        Some(summary) => {
+            if let (Some(current), Some(msrv)) = (current_rust_version, summary.rust_version()) {
+                let msrv_req = msrv.to_caret_req();
+                if !msrv_req.matches(current) {
+                    let name = summary.name();
+                    let ver = summary.version();
+                    let extra = if dep.source_id().is_registry() {
+                        // Match any version, not just the selected
+                        let msrv_dep =
+                            Dependency::parse(dep.package_name(), None, dep.source_id())?;
+                        let msrv_deps = loop {
+                            match source.query_vec(&msrv_dep, QueryKind::Exact)? {
+                                Poll::Ready(deps) => break deps,
+                                Poll::Pending => source.block_until_ready()?,
+                            }
+                        };
+                        if let Some(alt) = msrv_deps
+                            .iter()
+                            .map(|s| s.as_summary())
+                            .filter(|summary| {
+                                summary
+                                    .rust_version()
+                                    .map(|msrv| msrv.to_caret_req().matches(current))
+                                    .unwrap_or(true)
+                            })
+                            .max_by_key(|s| s.package_id())
+                        {
+                            if let Some(rust_version) = alt.rust_version() {
+                                format!(
+                                    "\n`{name} {}` supports rustc {rust_version}",
+                                    alt.version()
+                                )
+                            } else {
+                                format!(
+                                    "\n`{name} {}` has an unspecified minimum rustc version",
+                                    alt.version()
+                                )
+                            }
+                        } else {
+                            String::new()
+                        }
+                    } else {
+                        String::new()
+                    };
+                    bail!("\
+cannot install package `{name} {ver}`, it requires rustc {msrv} or newer, while the currently active rustc version is {current}{extra}"
+)
+                }
+            }
+            let pkg = Box::new(source).download_now(summary.package_id(), config)?;
             Ok(pkg)
         }
         None => {
             let is_yanked: bool = if dep.version_req().is_exact() {
                 let version: String = dep.version_req().to_string();
                 if let Ok(pkg_id) =
-                    PackageId::new(dep.package_name(), &version[1..], source.source_id())
+                    PackageId::try_new(dep.package_name(), &version[1..], source.source_id())
                 {
                     source.invalidate_cache();
                     loop {
@@ -594,6 +689,7 @@ pub fn select_pkg<T, F>(
     dep: Option<Dependency>,
     mut list_all: F,
     config: &Config,
+    current_rust_version: Option<&semver::Version>,
 ) -> CargoResult<Package>
 where
     T: Source,
@@ -602,12 +698,12 @@ where
     // This operation may involve updating some sources or making a few queries
     // which may involve frobbing caches, as a result make sure we synchronize
     // with other global Cargos
-    let _lock = config.acquire_package_cache_lock()?;
+    let _lock = config.acquire_package_cache_lock(CacheLockMode::DownloadExclusive)?;
 
     source.invalidate_cache();
 
     return if let Some(dep) = dep {
-        select_dep_pkg(source, dep, config, false)
+        select_dep_pkg(source, dep, config, false, current_rust_version)
     } else {
         let candidates = list_all(source)?;
         let binaries = candidates
