@@ -107,14 +107,14 @@ fn non_virtual_default_members_build_other_member() {
     p.cargo("check")
         .with_stderr(
             "[CHECKING] baz v0.1.0 ([..])\n\
-             [..] Finished dev [unoptimized + debuginfo] target(s) in [..]\n",
+             [..] Finished `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
         )
         .run();
 
     p.cargo("check --manifest-path bar/Cargo.toml")
         .with_stderr(
             "[CHECKING] bar v0.1.0 ([..])\n\
-             [..] Finished dev [unoptimized + debuginfo] target(s) in [..]\n",
+             [..] Finished `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
         )
         .run();
 }
@@ -143,7 +143,7 @@ fn non_virtual_default_members_build_root_project() {
     p.cargo("check")
         .with_stderr(
             "[CHECKING] foo v0.1.0 ([..])\n\
-             [..] Finished dev [unoptimized + debuginfo] target(s) in [..]\n",
+             [..] Finished `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
         )
         .run();
 }
@@ -438,6 +438,7 @@ fn invalid_members() {
         .with_stderr(
             "\
 [ERROR] failed to load manifest for workspace member `[..]/foo`
+referenced by workspace at `[..]/foo/Cargo.toml`
 
 Caused by:
   failed to read `[..]foo/foo/Cargo.toml`
@@ -668,7 +669,7 @@ fn share_dependencies() {
 [DOWNLOADED] dep1 v0.1.3 ([..])
 [CHECKING] dep1 v0.1.3
 [CHECKING] foo v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -769,7 +770,7 @@ fn lock_works_for_everyone() {
 [DOWNLOADED] dep2 v0.1.0 ([..])
 [CHECKING] dep2 v0.1.0
 [CHECKING] foo v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -782,7 +783,7 @@ fn lock_works_for_everyone() {
 [DOWNLOADED] dep1 v0.1.0 ([..])
 [CHECKING] dep1 v0.1.0
 [CHECKING] bar v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -910,8 +911,8 @@ fn virtual_default_member_is_not_a_member() {
         .with_status(101)
         .with_stderr(
             "\
-error: package `[..]something-else` is listed in workspace’s default-members \
-but is not a member.
+error: package `[..]something-else` is listed in default-members but is not a member\n\
+for workspace at [..]Cargo.toml.
 ",
         )
         .run();
@@ -937,7 +938,7 @@ fn virtual_default_members_build_other_member() {
     p.cargo("check --manifest-path bar/Cargo.toml")
         .with_stderr(
             "[CHECKING] bar v0.1.0 ([..])\n\
-             [..] Finished dev [unoptimized + debuginfo] target(s) in [..]\n",
+             [..] Finished `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
         )
         .run();
 }
@@ -1063,7 +1064,11 @@ fn new_creates_members_list() {
     let p = p.build();
 
     p.cargo("new --lib bar")
-        .with_stderr("     Created library `bar` package")
+        .with_stderr("\
+[CREATING] library `bar` package
+[ADDING] `bar` as member of workspace at `[ROOT]/foo`
+[NOTE] see more `Cargo.toml` keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+")
         .run();
 }
 
@@ -1073,17 +1078,16 @@ fn new_warning_with_corrupt_ws() {
     p.cargo("new bar")
         .with_stderr(
             "\
+[CREATING] binary (application) `bar` package
+[ERROR] expected `.`, `=`
+ --> Cargo.toml:1:5
+  |
+1 | asdf
+  |     ^
+  |
 [WARNING] compiling this new package may not work due to invalid workspace configuration
 
-failed to parse manifest at `[..]foo/Cargo.toml`
-
-Caused by:
-  TOML parse error at line 1, column 5
-    |
-  1 | asdf
-    |     ^
-  expected `.`, `=`
-     Created binary (application) `bar` package
+[NOTE] see more `Cargo.toml` keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 ",
         )
         .run();
@@ -1343,7 +1347,16 @@ fn error_if_parent_cargo_toml_is_invalid() {
     p.cargo("check")
         .cwd("bar")
         .with_status(101)
-        .with_stderr_contains("[ERROR] failed to parse manifest at `[..]`")
+        .with_stderr(
+            "\
+[ERROR] expected `.`, `=`
+ --> ../Cargo.toml:1:9
+  |
+1 | Totally not a TOML file
+  |         ^
+  |
+",
+        )
         .run();
 }
 
@@ -1660,8 +1673,8 @@ fn excluded_default_members_still_must_be_members() {
         .with_status(101)
         .with_stderr(
             "\
-error: package `[..]bar` is listed in workspace’s default-members \
-but is not a member.
+error: package `[..]bar` is listed in default-members but is not a member\n\
+for workspace at [..]foo/Cargo.toml.
 ",
         )
         .run();
@@ -1890,6 +1903,7 @@ fn glob_syntax_invalid_members() {
         .with_stderr(
             "\
 [ERROR] failed to load manifest for workspace member `[..]/crates/bar`
+referenced by workspace at `[..]/Cargo.toml`
 
 Caused by:
   failed to read `[..]foo/crates/bar/Cargo.toml`
@@ -1970,7 +1984,7 @@ fn dep_used_with_separate_features() {
 [..]Compiling feat_lib v0.1.0 ([..])
 [..]Compiling caller1 v0.1.0 ([..])
 [..]Compiling caller2 v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1987,7 +2001,7 @@ fn dep_used_with_separate_features() {
             "\
 [..]Compiling feat_lib v0.1.0 ([..])
 [..]Compiling caller1 v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1996,15 +2010,15 @@ fn dep_used_with_separate_features() {
     // features are being built separately. Should not rebuild anything.
     p.cargo("build")
         .cwd("caller2")
-        .with_stderr("[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]")
+        .with_stderr("[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]")
         .run();
     p.cargo("build")
         .cwd("caller1")
-        .with_stderr("[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]")
+        .with_stderr("[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]")
         .run();
     p.cargo("build")
         .cwd("caller2")
-        .with_stderr("[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]")
+        .with_stderr("[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]")
         .run();
 }
 
@@ -2186,7 +2200,7 @@ fn ws_rustc_err() {
 
 #[cargo_test]
 fn ws_err_unused() {
-    for key in &[
+    for table in &[
         "[lib]",
         "[[bin]]",
         "[[example]]",
@@ -2200,6 +2214,7 @@ fn ws_err_unused() {
         "[badges]",
         "[lints]",
     ] {
+        let key = table.trim_start_matches('[').trim_end_matches(']');
         let p = project()
             .file(
                 "Cargo.toml",
@@ -2208,9 +2223,8 @@ fn ws_err_unused() {
                     [workspace]
                     members = ["a"]
 
-                    {}
+                    {table}
                     "#,
-                    key
                 ),
             )
             .file("a/Cargo.toml", &basic_lib_manifest("a"))
@@ -2223,9 +2237,8 @@ fn ws_err_unused() {
 [ERROR] failed to parse manifest at `[..]/foo/Cargo.toml`
 
 Caused by:
-  this virtual manifest specifies a {} section, which is not allowed
+  this virtual manifest specifies a `{key}` section, which is not allowed
 ",
-                key
             ))
             .run();
     }
@@ -2377,6 +2390,7 @@ fn member_dep_missing() {
         .with_stderr(
             "\
 [ERROR] failed to load manifest for workspace member `[..]/bar`
+referenced by workspace at `[..]/Cargo.toml`
 
 Caused by:
   failed to load manifest for dependency `baz`

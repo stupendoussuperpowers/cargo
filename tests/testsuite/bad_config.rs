@@ -9,7 +9,7 @@ fn bad1() {
     let p = project()
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
                   [target]
                   nonexistent-target = "foo"
@@ -21,7 +21,7 @@ fn bad1() {
         .with_stderr(
             "\
 [ERROR] expected table for configuration key `target.nonexistent-target`, \
-but found string in [..]/config
+but found string in [..]/config.toml
 ",
         )
         .run();
@@ -32,7 +32,7 @@ fn bad2() {
     let p = project()
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
                   [http]
                     proxy = 3.0
@@ -46,7 +46,7 @@ fn bad2() {
 [ERROR] could not load Cargo configuration
 
 Caused by:
-  failed to load TOML configuration from `[..]config`
+  failed to load TOML configuration from `[..]config.toml`
 
 Caused by:
   failed to parse key `http`
@@ -67,7 +67,7 @@ fn bad3() {
     let p = project()
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
                 [http]
                   proxy = true
@@ -84,7 +84,7 @@ fn bad3() {
 error: failed to update registry [..]
 
 Caused by:
-  error in [..]config: `http.proxy` expected a string, but found a boolean
+  error in [..]config.toml: `http.proxy` expected a string, but found a boolean
 ",
         )
         .run();
@@ -94,7 +94,7 @@ Caused by:
 fn bad4() {
     let p = project()
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
                 [cargo-new]
                   vcs = false
@@ -105,10 +105,11 @@ fn bad4() {
         .with_status(101)
         .with_stderr(
             "\
+[CREATING] binary (application) `foo` package
 [ERROR] Failed to create package `foo` at `[..]`
 
 Caused by:
-  error in [..]config: `cargo-new.vcs` expected a string, but found a boolean
+  error in [..]config.toml: `cargo-new.vcs` expected a string, but found a boolean
 ",
         )
         .run();
@@ -120,7 +121,7 @@ fn bad6() {
     let p = project()
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
                 [http]
                   user-agent = true
@@ -137,7 +138,7 @@ fn bad6() {
 error: failed to update registry [..]
 
 Caused by:
-  error in [..]config: `http.user-agent` expected a string, but found a boolean
+  error in [..]config.toml: `http.user-agent` expected a string, but found a boolean
 ",
         )
         .run();
@@ -158,7 +159,7 @@ fn invalid_global_config() {
                 foo = "0.1.0"
             "#,
         )
-        .file(".cargo/config", "4")
+        .file(".cargo/config.toml", "4")
         .file("src/lib.rs", "")
         .build();
 
@@ -449,15 +450,13 @@ fn malformed_override() {
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] failed to parse manifest at `[..]`
-
-Caused by:
-  TOML parse error at line 8, column 27
-    |
-  8 |                 native = {
-    |                           ^
-  invalid inline table
-  expected `}`
+[ERROR] invalid inline table
+expected `}`
+ --> Cargo.toml:8:27
+  |
+8 |                 native = {
+  |                           ^
+  |
 ",
         )
         .run();
@@ -675,7 +674,7 @@ fn unused_keys() {
             "\
 warning: unused manifest key: target.foo.bar
 [CHECKING] foo v0.1.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -699,7 +698,7 @@ warning: unused manifest key: target.foo.bar
             "\
 warning: unused manifest key: package.bulid
 [CHECKING] foo [..]
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -726,7 +725,7 @@ warning: unused manifest key: package.bulid
             "\
 warning: unused manifest key: lib.build
 [CHECKING] foo [..]
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -751,7 +750,7 @@ fn unused_keys_in_virtual_manifest() {
             "\
 [WARNING] [..]/foo/Cargo.toml: unused manifest key: workspace.bulid
 [CHECKING] bar [..]
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -790,7 +789,7 @@ or workspace dependency to use. This will be considered an error in future versi
 #[cargo_test]
 fn invalid_toml_historically_allowed_fails() {
     let p = project()
-        .file(".cargo/config", "[bar] baz = 2")
+        .file(".cargo/config.toml", "[bar] baz = 2")
         .file("src/main.rs", "fn main() {}")
         .build();
 
@@ -882,7 +881,7 @@ use `rev = \"foo\"` in the dependency declaration.
 fn bad_source_config1() {
     let p = project()
         .file("src/lib.rs", "")
-        .file(".cargo/config", "[source.foo]")
+        .file(".cargo/config.toml", "[source.foo]")
         .build();
 
     p.cargo("check")
@@ -908,7 +907,7 @@ fn bad_source_config2() {
         )
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
                 [source.crates-io]
                 registry = 'http://example.com'
@@ -954,7 +953,7 @@ fn bad_source_config3() {
         )
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
                 [source.crates-io]
                 registry = 'https://example.com'
@@ -999,7 +998,7 @@ fn bad_source_config4() {
         )
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
                 [source.crates-io]
                 replace-with = 'bar'
@@ -1048,7 +1047,7 @@ fn bad_source_config5() {
         )
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
                 [source.crates-io]
                 registry = 'https://example.com'
@@ -1122,7 +1121,7 @@ fn bad_source_config6() {
         )
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
                 [source.crates-io]
                 registry = 'https://example.com'
@@ -1135,10 +1134,10 @@ fn bad_source_config6() {
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] error in [..]/foo/.cargo/config: could not load config key `source.crates-io.replace-with`
+[ERROR] error in [..]/foo/.cargo/config.toml: could not load config key `source.crates-io.replace-with`
 
 Caused by:
-  error in [..]/foo/.cargo/config: `source.crates-io.replace-with` expected a string, but found a array
+  error in [..]/foo/.cargo/config.toml: `source.crates-io.replace-with` expected a string, but found a array
 "
         )
         .run();
@@ -1209,7 +1208,7 @@ fn bad_source_config7() {
         )
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
                 [source.foo]
                 registry = 'https://example.com'
@@ -1243,7 +1242,7 @@ fn bad_source_config8() {
         )
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
                 [source.foo]
                 branch = "somebranch"
@@ -1255,7 +1254,7 @@ fn bad_source_config8() {
         .with_status(101)
         .with_stderr(
             "[ERROR] source definition `source.foo` specifies `branch`, \
-             but that requires a `git` key to be specified (in [..]/foo/.cargo/config)",
+             but that requires a `git` key to be specified (in [..]/foo/.cargo/config.toml)",
         )
         .run();
 }
@@ -1282,14 +1281,12 @@ fn bad_dependency() {
         .with_status(101)
         .with_stderr(
             "\
-error: failed to parse manifest at `[..]`
-
-Caused by:
-  TOML parse error at line 8, column 23
-    |
-  8 |                 bar = 3
-    |                       ^
-  invalid type: integer `3`, expected a version string like [..]
+[ERROR] invalid type: integer `3`, expected a version string like [..]
+ --> Cargo.toml:8:23
+  |
+8 |                 bar = 3
+  |                       ^
+  |
 ",
         )
         .run();
@@ -1317,14 +1314,12 @@ fn bad_debuginfo() {
         .with_status(101)
         .with_stderr(
             "\
-error: failed to parse manifest [..]
-
-Caused by:
-  TOML parse error at line 8, column 25
-    |
-  8 |                 debug = 'a'
-    |                         ^^^
-  invalid value: string \"a\", expected a boolean, 0, 1, 2, \"line-tables-only\", or \"line-directives-only\"
+[ERROR] invalid value: string \"a\", expected a boolean, 0, 1, 2, \"line-tables-only\", or \"line-directives-only\"
+ --> Cargo.toml:8:25
+  |
+8 |                 debug = 'a'
+  |                         ^^^
+  |
 ",
         )
         .run();
@@ -1352,14 +1347,12 @@ fn bad_debuginfo2() {
         .with_status(101)
         .with_stderr(
             "\
-error: failed to parse manifest at `[..]`
-
-Caused by:
-  TOML parse error at line 8, column 25
-    |
-  8 |                 debug = 3.6
-    |                         ^^^
-  invalid type: floating point `3.6`, expected a boolean, 0, 1, 2, \"line-tables-only\", or \"line-directives-only\"
+[ERROR] invalid type: floating point `3.6`, expected a boolean, 0, 1, 2, \"line-tables-only\", or \"line-directives-only\"
+ --> Cargo.toml:8:25
+  |
+8 |                 debug = 3.6
+  |                         ^^^
+  |
 ",
         )
         .run();
@@ -1385,14 +1378,12 @@ fn bad_opt_level() {
         .with_status(101)
         .with_stderr(
             "\
-error: failed to parse manifest at `[..]`
-
-Caused by:
-  TOML parse error at line 6, column 25
-    |
-  6 |                 build = 3
-    |                         ^
-  invalid type: integer `3`, expected a boolean or string
+[ERROR] invalid type: integer `3`, expected a boolean or string
+ --> Cargo.toml:6:25
+  |
+6 |                 build = 3
+  |                         ^
+  |
 ",
         )
         .run();
@@ -1542,7 +1533,7 @@ fn bad_target_cfg() {
     // the message.
     let p = project()
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
             [target.'cfg(not(target_os = "none"))']
             runner = false
@@ -1555,17 +1546,17 @@ fn bad_target_cfg() {
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] error in [..]/foo/.cargo/config: \
+[ERROR] error in [..]/foo/.cargo/config.toml: \
 could not load config key `target.\"cfg(not(target_os = \\\"none\\\"))\".runner`
 
 Caused by:
-  error in [..]/foo/.cargo/config: \
+  error in [..]/foo/.cargo/config.toml: \
   could not load config key `target.\"cfg(not(target_os = \\\"none\\\"))\".runner`
 
 Caused by:
   invalid configuration for key `target.\"cfg(not(target_os = \\\"none\\\"))\".runner`
   expected a string or array of strings, but found a boolean for \
-  `target.\"cfg(not(target_os = \\\"none\\\"))\".runner` in [..]/foo/.cargo/config
+  `target.\"cfg(not(target_os = \\\"none\\\"))\".runner` in [..]/foo/.cargo/config.toml
 ",
         )
         .run();
@@ -1581,7 +1572,7 @@ fn bad_target_links_overrides() {
     // currently is designed with serde.
     let p = project()
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 r#"
                 [target.{}.somelib]
@@ -1597,12 +1588,12 @@ fn bad_target_links_overrides() {
         .with_status(101)
         .with_stderr(
             "[ERROR] Only `-l` and `-L` flags are allowed in target config \
-             `target.[..].rustc-flags` (in [..]foo/.cargo/config): `foo`",
+             `target.[..].rustc-flags` (in [..]foo/.cargo/config.toml): `foo`",
         )
         .run();
 
     p.change_file(
-        ".cargo/config",
+        ".cargo/config.toml",
         &format!(
             "[target.{}.somelib]
             warning = \"foo\"
@@ -1621,7 +1612,7 @@ fn redefined_sources() {
     // Cannot define a source multiple times.
     let p = project()
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
             [source.foo]
             registry = "https://github.com/rust-lang/crates.io-index"
@@ -1642,7 +1633,7 @@ note: Sources are not allowed to be defined multiple times.
         .run();
 
     p.change_file(
-        ".cargo/config",
+        ".cargo/config.toml",
         r#"
         [source.one]
         directory = "index"
@@ -1685,16 +1676,14 @@ fn bad_trim_paths() {
     p.cargo("check -Ztrim-paths")
         .masquerade_as_nightly_cargo(&["trim-paths"])
         .with_status(101)
-        .with_stderr(
-            r#"error: failed to parse manifest at `[..]`
-
-Caused by:
-  TOML parse error at line 7, column 30
-    |
-  7 |                 trim-paths = "split-debuginfo"
-    |                              ^^^^^^^^^^^^^^^^^
-  expected a boolean, "none", "diagnostics", "macro", "object", "all", or an array with these options
-"#,
+        .with_stderr("\
+[ERROR] expected a boolean, \"none\", \"diagnostics\", \"macro\", \"object\", \"all\", or an array with these options
+ --> Cargo.toml:7:30
+  |
+7 |                 trim-paths = \"split-debuginfo\"
+  |                              ^^^^^^^^^^^^^^^^^
+  |
+",
         )
         .run();
 }

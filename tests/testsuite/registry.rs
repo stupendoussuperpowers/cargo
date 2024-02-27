@@ -63,7 +63,7 @@ fn simple() {
 [DOWNLOADED] bar v0.0.1 (registry `dummy-registry`)
 [CHECKING] bar v0.0.1
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -78,7 +78,7 @@ fn simple() {
             "\
 [CHECKING] bar v0.0.1
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -125,7 +125,7 @@ fn deps() {
 [CHECKING] baz v0.0.1
 [CHECKING] bar v0.0.1
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -426,7 +426,7 @@ required by package `foo v0.0.1 ([..])`
 [DOWNLOADED] notyet v0.0.1 (registry `dummy-registry`)
 [CHECKING] notyet v0.0.1
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -496,7 +496,7 @@ Caused by:
 [DOWNLOADED] notyet v0.0.1 (registry `dummy-registry`)
 [COMPILING] notyet v0.0.1
 [COMPILING] foo v0.0.1 ([CWD][..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 [PACKAGED] [..]
 ",
         )
@@ -541,7 +541,7 @@ fn lockfile_locks() {
 [DOWNLOADED] bar v0.0.1 (registry `dummy-registry`)
 [CHECKING] bar v0.0.1
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -593,7 +593,7 @@ fn lockfile_locks_transitively() {
 [CHECKING] baz v0.0.1
 [CHECKING] bar v0.0.1
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -651,7 +651,7 @@ fn yanks_are_not_used() {
 [CHECKING] baz v0.0.1
 [CHECKING] bar v0.0.1
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -921,7 +921,7 @@ fn update_with_lockfile_if_packages_missing() {
 [UPDATING] `[..]` index
 [DOWNLOADING] crates ...
 [DOWNLOADED] bar v0.0.1 (registry `dummy-registry`)
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -980,7 +980,7 @@ fn update_lockfile() {
 [DOWNLOADED] [..] v0.0.2 (registry `dummy-registry`)
 [CHECKING] bar v0.0.2
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -1003,7 +1003,7 @@ fn update_lockfile() {
 [DOWNLOADED] [..] v0.0.3 (registry `dummy-registry`)
 [CHECKING] bar v0.0.3
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -1073,7 +1073,7 @@ fn dev_dependency_not_used() {
 [DOWNLOADED] [..] v0.0.1 (registry `dummy-registry`)
 [CHECKING] bar v0.0.1
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -1167,7 +1167,7 @@ fn updating_a_dep() {
 [CHECKING] bar v0.0.1
 [CHECKING] a v0.0.1 ([CWD]/a)
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -1203,7 +1203,7 @@ fn updating_a_dep() {
 [CHECKING] bar v0.1.0
 [CHECKING] a v0.0.1 ([CWD]/a)
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -1276,7 +1276,7 @@ fn git_and_registry_dep() {
 [CHECKING] a v0.0.1
 [CHECKING] b v0.0.1 ([..])
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -1362,7 +1362,7 @@ fn update_publish_then_update() {
 [DOWNLOADED] a v0.1.1 (registry `dummy-registry`)
 [COMPILING] a v0.1.1
 [COMPILING] foo v0.5.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -1461,7 +1461,7 @@ fn update_transitive_dependency() {
 [CHECKING] b v0.1.1
 [CHECKING] a v0.1.0
 [CHECKING] foo v0.5.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -1572,6 +1572,7 @@ fn update_multiple_packages() {
 [UPDATING] `[..]` index
 [UPDATING] a v0.1.0 -> v0.1.1
 [UPDATING] b v0.1.0 -> v0.1.1
+[NOTE] pass `--verbose` to see 1 unchanged dependencies behind latest
 ",
         )
         .run();
@@ -1822,7 +1823,7 @@ fn only_download_relevant() {
 [DOWNLOADED] baz v0.1.0 ([..])
 [CHECKING] baz v0.1.0
 [CHECKING] bar v0.5.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -2478,7 +2479,7 @@ fn registry_index_rejected() {
 
     let p = project()
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
             [registry]
             index = "https://example.com/"
@@ -2747,7 +2748,7 @@ Caused by:
             "\
 [CHECKING] bar v0.0.1
 [CHECKING] foo v0.0.1 ([..])
-[FINISHED] dev [..]
+[FINISHED] `dev` profile [..]
 ",
         )
         .run();
@@ -2801,7 +2802,7 @@ internal server error
 [DOWNLOADED] bar v0.0.1 (registry `dummy-registry`)
 [CHECKING] bar v0.0.1
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -3292,7 +3293,7 @@ or use environment variable CARGO_REGISTRIES_ALTERNATIVE_TOKEN
 
     // Test the output with the default.
     cargo_util::paths::append(
-        &cargo_home().join("config"),
+        &cargo_home().join("config.toml"),
         br#"
             [registry]
             default = "alternative"
@@ -3607,7 +3608,7 @@ fn differ_only_by_metadata() {
 [DOWNLOADED] [..] v0.0.1+b (registry `dummy-registry`)
 [CHECKING] baz v0.0.1+b
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -3658,7 +3659,46 @@ fn differ_only_by_metadata_with_lockfile() {
 [DOWNLOADED] [..] v0.0.1+b (registry `dummy-registry`)
 [CHECKING] baz v0.0.1+b
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
+",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn builtin_source_replacement() {
+    // errors for builtin source replacement of crates.io
+    // should not include mention of source replacement in the error message.
+    let server = RegistryBuilder::new().build();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+
+                [dependencies]
+                bad-cksum = ">= 0.0.0"
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    let pkg = Package::new("bad-cksum", "0.0.1");
+    pkg.publish();
+    t!(File::create(&pkg.archive_dst()));
+
+    p.cargo("check -v")
+        .replace_crates_io(&server.index_url())
+        .with_status(101)
+        .with_stderr(
+            "\
+[UPDATING] [..] index
+[DOWNLOADING] crates ...
+[DOWNLOADED] bad-cksum [..]
+[ERROR] failed to verify the checksum of `bad-cksum v0.0.1`
 ",
         )
         .run();

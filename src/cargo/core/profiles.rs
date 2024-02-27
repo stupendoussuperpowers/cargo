@@ -30,7 +30,7 @@ use crate::core::{
 };
 use crate::util::interning::InternedString;
 use crate::util::toml::validate_profile;
-use crate::util::{closest_msg, config, CargoResult, Config};
+use crate::util::{closest_msg, config, CargoResult, GlobalContext};
 use anyhow::{bail, Context as _};
 use cargo_util_schemas::manifest::TomlTrimPaths;
 use cargo_util_schemas::manifest::TomlTrimPathsValue;
@@ -69,13 +69,13 @@ pub struct Profiles {
 
 impl Profiles {
     pub fn new(ws: &Workspace<'_>, requested_profile: InternedString) -> CargoResult<Profiles> {
-        let config = ws.config();
-        let incremental = match config.get_env_os("CARGO_INCREMENTAL") {
+        let gctx = ws.gctx();
+        let incremental = match gctx.get_env_os("CARGO_INCREMENTAL") {
             Some(v) => Some(v == "1"),
-            None => config.build_config()?.incremental,
+            None => gctx.build_config()?.incremental,
         };
         let mut profiles = merge_config_profiles(ws, requested_profile)?;
-        let rustc_host = ws.config().load_global_rustc(Some(ws))?.host;
+        let rustc_host = ws.gctx().load_global_rustc(Some(ws))?.host;
 
         let mut profile_makers = Profiles {
             incremental,
@@ -87,7 +87,7 @@ impl Profiles {
         };
 
         let trim_paths_enabled = ws.unstable_features().is_enabled(Feature::trim_paths())
-            || config.cli_unstable().trim_paths;
+            || gctx.cli_unstable().trim_paths;
         Self::add_root_profiles(&mut profile_makers, &profiles, trim_paths_enabled);
 
         // Merge with predefined profiles.
@@ -573,10 +573,17 @@ fn merge_profile(profile: &mut Profile, toml: &TomlProfile) {
         profile.trim_paths = Some(trim_paths.clone());
     }
     profile.strip = match toml.strip {
-        Some(StringOrBool::Bool(true)) => Strip::Named(InternedString::new("symbols")),
-        None | Some(StringOrBool::Bool(false)) => Strip::None,
-        Some(StringOrBool::String(ref n)) if n.as_str() == "none" => Strip::None,
-        Some(StringOrBool::String(ref n)) => Strip::Named(InternedString::new(n)),
+        Some(StringOrBool::Bool(true)) => {
+            Strip::Resolved(StripInner::Named(InternedString::new("symbols")))
+        }
+        Some(StringOrBool::Bool(false)) => Strip::Resolved(StripInner::None),
+        Some(StringOrBool::String(ref n)) if n.as_str() == "none" => {
+            Strip::Resolved(StripInner::None)
+        }
+        Some(StringOrBool::String(ref n)) => {
+            Strip::Resolved(StripInner::Named(InternedString::new(n)))
+        }
+        None => Strip::Deferred(StripInner::None),
     };
 }
 
@@ -636,7 +643,7 @@ impl Default for Profile {
             rpath: false,
             incremental: false,
             panic: PanicStrategy::Unwind,
-            strip: Strip::None,
+            strip: Strip::Deferred(StripInner::None),
             rustflags: vec![],
             trim_paths: None,
         }
@@ -873,25 +880,84 @@ impl fmt::Display for PanicStrategy {
     }
 }
 
-/// The setting for choosing which symbols to strip
 #[derive(
     Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
-#[serde(rename_all = "lowercase")]
-pub enum Strip {
+pub enum StripInner {
     /// Don't remove any symbols
     None,
     /// Named Strip settings
     Named(InternedString),
 }
 
-impl fmt::Display for Strip {
+impl fmt::Display for StripInner {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Strip::None => "none",
-            Strip::Named(s) => s.as_str(),
+            StripInner::None => "none",
+            StripInner::Named(s) => s.as_str(),
         }
         .fmt(f)
+    }
+}
+
+/// The setting for choosing which symbols to strip.
+///
+/// This is semantically a [`StripInner`], and should be used as so via the
+/// [`Strip::into_inner`] method for all intents and purposes.
+///
+/// Internally, it's used to model a strip option whose value can be deferred
+/// for optimization purposes: when no package being compiled requires debuginfo,
+/// then we can strip debuginfo to remove pre-existing debug symbols from the
+/// standard library.
+#[derive(Clone, Copy, Debug, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Strip {
+    /// A strip option that is fixed and will not change.
+    Resolved(StripInner),
+    /// A strip option that might be overridden by Cargo for optimization
+    /// purposes.
+    Deferred(StripInner),
+}
+
+impl Strip {
+    /// The main way to interact with this strip option, turning it into a [`StripInner`].
+    pub fn into_inner(self) -> StripInner {
+        match self {
+            Strip::Resolved(v) | Strip::Deferred(v) => v,
+        }
+    }
+
+    pub(crate) fn is_deferred(&self) -> bool {
+        matches!(self, Strip::Deferred(_))
+    }
+
+    /// Reset to stripping debuginfo.
+    pub(crate) fn strip_debuginfo(self) -> Self {
+        Strip::Resolved(StripInner::Named("debuginfo".into()))
+    }
+}
+
+impl PartialEq for Strip {
+    fn eq(&self, other: &Self) -> bool {
+        self.into_inner().eq(&other.into_inner())
+    }
+}
+
+impl Hash for Strip {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.into_inner().hash(state);
+    }
+}
+
+impl PartialOrd for Strip {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.into_inner().partial_cmp(&other.into_inner())
+    }
+}
+
+impl Ord for Strip {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.into_inner().cmp(&other.into_inner())
     }
 }
 
@@ -1043,7 +1109,7 @@ impl UnitFor {
     /// whether `panic=abort` is supported for tests. Historical versions of
     /// rustc did not support this, but newer versions do with an unstable
     /// compiler flag.
-    pub fn new_test(config: &Config, root_compile_kind: CompileKind) -> UnitFor {
+    pub fn new_test(gctx: &GlobalContext, root_compile_kind: CompileKind) -> UnitFor {
         UnitFor {
             host: false,
             host_features: false,
@@ -1051,7 +1117,7 @@ impl UnitFor {
             // which inherits the panic setting from the dev/release profile
             // (basically avoid recompiles) but historical defaults required
             // that we always unwound.
-            panic_setting: if config.cli_unstable().panic_abort_tests {
+            panic_setting: if gctx.cli_unstable().panic_abort_tests {
                 PanicSetting::ReadProfile
             } else {
                 PanicSetting::AlwaysUnwind
@@ -1064,8 +1130,8 @@ impl UnitFor {
     /// This is a special case for unit tests of a proc-macro.
     ///
     /// Proc-macro unit tests are forced to be run on the host.
-    pub fn new_host_test(config: &Config, root_compile_kind: CompileKind) -> UnitFor {
-        let mut unit_for = UnitFor::new_test(config, root_compile_kind);
+    pub fn new_host_test(gctx: &GlobalContext, root_compile_kind: CompileKind) -> UnitFor {
+        let mut unit_for = UnitFor::new_test(gctx, root_compile_kind);
         unit_for.host = true;
         unit_for.host_features = true;
         unit_for
@@ -1233,7 +1299,7 @@ fn merge_config_profiles(
 /// Helper for fetching a profile from config.
 fn get_config_profile(ws: &Workspace<'_>, name: &str) -> CargoResult<Option<TomlProfile>> {
     let profile: Option<config::Value<TomlProfile>> =
-        ws.config().get(&format!("profile.{}", name))?;
+        ws.gctx().get(&format!("profile.{}", name))?;
     let Some(profile) = profile else {
         return Ok(None);
     };
@@ -1241,7 +1307,7 @@ fn get_config_profile(ws: &Workspace<'_>, name: &str) -> CargoResult<Option<Toml
     validate_profile(
         &profile.val,
         name,
-        ws.config().cli_unstable(),
+        ws.gctx().cli_unstable(),
         ws.unstable_features(),
         &mut warnings,
     )
@@ -1252,7 +1318,7 @@ fn get_config_profile(ws: &Workspace<'_>, name: &str) -> CargoResult<Option<Toml
         )
     })?;
     for warning in warnings {
-        ws.config().shell().warn(warning)?;
+        ws.gctx().shell().warn(warning)?;
     }
     Ok(Some(profile.val))
 }

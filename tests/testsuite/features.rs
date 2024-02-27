@@ -57,14 +57,12 @@ fn empty_feature_name() {
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] failed to parse manifest at `[..]`
-
-Caused by:
-  TOML parse error at line 8, column 17
-    |
-  8 |                 \"\" = []
-    |                 ^^
-  feature name cannot be empty
+[ERROR] feature name cannot be empty
+ --> Cargo.toml:8:17
+  |
+8 |                 \"\" = []
+  |                 ^^
+  |
 ",
         )
         .run();
@@ -509,7 +507,7 @@ fn no_feature_doesnt_build() {
         .with_stderr(
             "\
 [COMPILING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -523,7 +521,7 @@ fn no_feature_doesnt_build() {
 [DIRTY-MSVC] foo v0.0.1 ([CWD]): the list of features changed
 [COMPILING] foo v0.0.1 ([CWD])
 [RUNNING] `rustc --crate-name foo [..]
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -569,7 +567,7 @@ fn default_feature_pulled_in() {
             "\
 [COMPILING] bar v0.0.1 ([CWD]/bar)
 [COMPILING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -581,7 +579,7 @@ fn default_feature_pulled_in() {
 [DIRTY-MSVC] foo v0.0.1 ([CWD]): the list of features changed
 [COMPILING] foo v0.0.1 ([CWD])
 [RUNNING] `rustc --crate-name foo [..]
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -693,7 +691,7 @@ fn groups_on_groups_on_groups() {
 [CHECKING] ba[..] v0.0.1 ([CWD]/ba[..])
 [CHECKING] ba[..] v0.0.1 ([CWD]/ba[..])
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -742,7 +740,7 @@ fn many_cli_features() {
 [CHECKING] ba[..] v0.0.1 ([CWD]/ba[..])
 [CHECKING] ba[..] v0.0.1 ([CWD]/ba[..])
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -825,7 +823,7 @@ fn union_features() {
 [CHECKING] d2 v0.0.1 ([CWD]/d2)
 [CHECKING] d1 v0.0.1 ([CWD]/d1)
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -870,7 +868,7 @@ fn many_features_no_rebuilds() {
             "\
 [CHECKING] a v0.1.0 ([CWD]/a)
 [CHECKING] b v0.1.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -881,7 +879,7 @@ fn many_features_no_rebuilds() {
             "\
 [FRESH] a v0.1.0 ([..]/a)
 [FRESH] b v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1139,7 +1137,7 @@ fn optional_and_dev_dep() {
         .with_stderr(
             "\
 [CHECKING] test v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1411,7 +1409,7 @@ fn many_cli_features_comma_delimited() {
 [CHECKING] ba[..] v0.0.1 ([CWD]/ba[..])
 [CHECKING] ba[..] v0.0.1 ([CWD]/ba[..])
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1478,7 +1476,7 @@ fn many_cli_features_comma_and_space_delimited() {
 [CHECKING] ba[..] v0.0.1 ([CWD]/ba[..])
 [CHECKING] ba[..] v0.0.1 ([CWD]/ba[..])
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1639,7 +1637,7 @@ fn warn_if_default_features() {
             r#"
 [WARNING] `default-features = [".."]` was found in [features]. Did you mean to use `default = [".."]`?
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
             "#.trim(),
         ).run();
 }
@@ -2056,16 +2054,12 @@ fn invalid_feature_names_error() {
         .with_status(101)
         .with_stderr(
             "\
-error: failed to parse manifest at `[ROOT]/foo/Cargo.toml`
-
-Caused by:
-  TOML parse error at line 8, column 17
-    |
-  8 |                 \"+foo\" = []
-    |                 ^^^^^^
-  invalid character `+` in feature name: `+foo`, \
-  the first character must be a Unicode XID start character or digit \
-  (most letters or `_` or `0` to `9`)
+[ERROR] invalid character `+` in feature name: `+foo`, the first character must be a Unicode XID start character or digit (most letters or `_` or `0` to `9`)
+ --> Cargo.toml:8:17
+  |
+8 |                 \"+foo\" = []
+  |                 ^^^^^^
+  |
 ",
         )
         .run();
@@ -2087,16 +2081,12 @@ Caused by:
         .with_status(101)
         .with_stderr(
             "\
-error: failed to parse manifest at `[ROOT]/foo/Cargo.toml`
-
-Caused by:
-  TOML parse error at line 8, column 13
-    |
-  8 |             \"a&b\" = []
-    |             ^^^^^
-  invalid character `&` in feature name: `a&b`, \
-  characters must be Unicode XID characters, '-', `+`, or `.` \
-  (numbers, `+`, `-`, `_`, `.`, or most letters)
+[ERROR] invalid character `&` in feature name: `a&b`, characters must be Unicode XID characters, '-', `+`, or `.` (numbers, `+`, `-`, `_`, `.`, or most letters)
+ --> Cargo.toml:8:13
+  |
+8 |             \"a&b\" = []
+  |             ^^^^^
+  |
 ",
         )
         .run();
@@ -2124,14 +2114,12 @@ fn invalid_feature_name_slash_error() {
         .with_status(101)
         .with_stderr(
             "\
-error: failed to parse manifest at `[CWD]/Cargo.toml`
-
-Caused by:
-  TOML parse error at line 7, column 17
-    |
-  7 |                 \"foo/bar\" = []
-    |                 ^^^^^^^^^
-  invalid character `/` in feature name: `foo/bar`, feature name is not allowed to contain slashes
+[ERROR] invalid character `/` in feature name: `foo/bar`, feature name is not allowed to contain slashes
+ --> Cargo.toml:7:17
+  |
+7 |                 \"foo/bar\" = []
+  |                 ^^^^^^^^^
+  |
 ",
         )
         .run();

@@ -9,7 +9,7 @@ fn setup() {
     let root = paths::root();
     t!(fs::create_dir(&root.join(".cargo")));
     t!(fs::write(
-        root.join(".cargo/config"),
+        root.join(".cargo/config.toml"),
         r#"
             [source.crates-io]
             registry = 'https://wut'
@@ -183,7 +183,7 @@ fn multiple_versions() {
         .file("src/lib.rs", "pub fn bar() {}")
         .publish();
 
-    p.cargo("update -v")
+    p.cargo("update")
         .with_stderr("[UPDATING] bar v0.1.0 -> v0.2.0")
         .run();
 }
@@ -381,7 +381,7 @@ fn invalid_dir_bad() {
         )
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
                 [source.crates-io]
                 registry = 'https://wut'
@@ -479,7 +479,7 @@ fn crates_io_registry_url_is_optional() {
     let root = paths::root();
     t!(fs::create_dir(&root.join(".cargo")));
     t!(fs::write(
-        root.join(".cargo/config"),
+        root.join(".cargo/config.toml"),
         r#"
             [source.crates-io]
             replace-with = 'my-awesome-local-registry'

@@ -436,14 +436,12 @@ fn crate_syntax_bad_name() {
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] failed to parse manifest at [..]/foo/Cargo.toml`
-
-Caused by:
-  TOML parse error at line 10, column 17
-     |
-  10 |                 \"dep:bar\" = []
-     |                 ^^^^^^^^^
-  feature named `dep:bar` is not allowed to start with `dep:`
+[ERROR] feature named `dep:bar` is not allowed to start with `dep:`
+  --> Cargo.toml:10:17
+   |
+10 |                 \"dep:bar\" = []
+   |                 ^^^^^^^^^
+   |
 ",
         )
         .run();
@@ -586,7 +584,7 @@ fn json_exposed() {
                     {
                       "name": "foo",
                       "version": "0.1.0",
-                      "id": "foo 0.1.0 [..]",
+                      "id": "[..]foo#0.1.0",
                       "license": null,
                       "license_file": null,
                       "description": null,
@@ -900,7 +898,7 @@ fn publish_no_implicit() {
 [PACKAGED] [..]
 [UPLOADING] foo v0.1.0 [..]
 [UPLOADED] foo v0.1.0 [..]
-note: Waiting [..]
+[NOTE] waiting [..]
 You may press ctrl-c [..]
 [PUBLISHED] foo v0.1.0 [..]
 ",
@@ -1023,7 +1021,7 @@ fn publish() {
 [PACKAGED] [..]
 [UPLOADING] foo v0.1.0 [..]
 [UPLOADED] foo v0.1.0 [..]
-note: Waiting [..]
+[NOTE] waiting [..]
 You may press ctrl-c [..]
 [PUBLISHED] foo v0.1.0 [..]
 ",

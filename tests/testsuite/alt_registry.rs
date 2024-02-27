@@ -36,7 +36,7 @@ fn depend_on_alt_registry() {
 [DOWNLOADED] bar v0.0.1 (registry `alternative`)
 [CHECKING] bar v0.0.1 (registry `alternative`)
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -49,7 +49,7 @@ fn depend_on_alt_registry() {
             "\
 [CHECKING] bar v0.0.1 (registry `alternative`)
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -91,7 +91,7 @@ fn depend_on_alt_registry_depends_on_same_registry_no_index() {
 [CHECKING] baz v0.0.1 (registry `alternative`)
 [CHECKING] bar v0.0.1 (registry `alternative`)
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -133,7 +133,7 @@ fn depend_on_alt_registry_depends_on_same_registry() {
 [CHECKING] baz v0.0.1 (registry `alternative`)
 [CHECKING] bar v0.0.1 (registry `alternative`)
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -176,7 +176,7 @@ fn depend_on_alt_registry_depends_on_crates_io() {
 [CHECKING] baz v0.0.1
 [CHECKING] bar v0.0.1 (registry `alternative`)
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -210,7 +210,7 @@ fn registry_and_path_dep_works() {
             "\
 [CHECKING] bar v0.0.1 ([CWD]/bar)
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -329,7 +329,7 @@ fn publish_with_registry_dependency() {
 [PACKAGED] [..]
 [UPLOADING] foo v0.0.1 [..]
 [UPLOADED] foo v0.0.1 to registry `alternative`
-note: Waiting for `foo v0.0.1` to be available at registry `alternative`.
+[NOTE] waiting for `foo v0.0.1` to be available at registry `alternative`.
 You may press ctrl-c to skip waiting; the crate should be available shortly.
 [PUBLISHED] foo v0.0.1 at registry `alternative`
 ",
@@ -413,7 +413,7 @@ fn alt_registry_and_crates_io_deps() {
 [CHECKING] alt_reg_dep v0.1.0 (registry `alternative`)
 [CHECKING] crates_io_dep v0.0.1
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -489,7 +489,7 @@ fn publish_to_alt_registry() {
 [PACKAGED] [..]
 [UPLOADING] foo v0.0.1 [..]
 [UPLOADED] foo v0.0.1 to registry `alternative`
-note: Waiting for `foo v0.0.1` to be available at registry `alternative`.
+[NOTE] waiting for `foo v0.0.1` to be available at registry `alternative`.
 You may press ctrl-c to skip waiting; the crate should be available shortly.
 [PUBLISHED] foo v0.0.1 at registry `alternative`
 ",
@@ -571,7 +571,7 @@ fn publish_with_crates_io_dep() {
 [PACKAGED] [..]
 [UPLOADING] foo v0.0.1 [..]
 [UPLOADED] foo v0.0.1 to registry `alternative`
-note: Waiting for `foo v0.0.1` to be available at registry `alternative`.
+[NOTE] waiting for `foo v0.0.1` to be available at registry `alternative`.
 You may press ctrl-c to skip waiting; the crate should be available shortly.
 [PUBLISHED] foo v0.0.1 at registry `alternative`
 ",
@@ -621,7 +621,7 @@ You may press ctrl-c to skip waiting; the crate should be available shortly.
 fn passwords_in_registries_index_url_forbidden() {
     registry::alt_init();
 
-    let config = paths::home().join(".cargo/config");
+    let config = paths::home().join(".cargo/config.toml");
 
     fs::write(
         config,
@@ -638,7 +638,7 @@ fn passwords_in_registries_index_url_forbidden() {
         .with_status(101)
         .with_stderr(
             "\
-error: invalid index URL for registry `alternative` defined in [..]/home/.cargo/config
+error: invalid index URL for registry `alternative` defined in [..]/home/.cargo/config.toml
 
 Caused by:
   registry URLs may not contain passwords
@@ -683,7 +683,7 @@ fn patch_alt_reg() {
 [UPDATING] `alternative` index
 [CHECKING] bar v0.1.0 ([CWD]/bar)
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -712,16 +712,17 @@ fn bad_registry_name() {
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] failed to parse manifest at `[CWD]/Cargo.toml`
-
-Caused by:
-  TOML parse error at line 7, column 17
-    |
-  7 |                 [dependencies.bar]
-    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  invalid character ` ` in registry name: `bad name`, [..]
+[ERROR] invalid character ` ` in registry name: `bad name`, characters must be Unicode XID characters (numbers, `-`, `_`, or most letters)
 
 
+ --> Cargo.toml:7:17
+  |
+7 |                   [dependencies.bar]
+  |  _________________^
+8 | |                 version = \"0.0.1\"
+9 | |                 registry = \"bad name\"
+  | |_____________________________________^
+  |
 ",
         )
         .run();
@@ -774,7 +775,7 @@ fn no_api() {
 [DOWNLOADED] bar v0.0.1 (registry `alternative`)
 [CHECKING] bar v0.0.1 (registry `alternative`)
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -857,7 +858,7 @@ fn alt_reg_metadata() {
                     {
                         "name": "foo",
                         "version": "0.0.1",
-                        "id": "foo 0.0.1 (path+file:[..]/foo)",
+                        "id": "path+file:[..]/foo#0.0.1",
                         "license": null,
                         "license_file": null,
                         "description": null,
@@ -907,10 +908,10 @@ fn alt_reg_metadata() {
                     }
                 ],
                 "workspace_members": [
-                    "foo 0.0.1 (path+file:[..]/foo)"
+                    "path+file:[..]/foo#0.0.1"
                 ],
                 "workspace_default_members": [
-                    "foo 0.0.1 (path+file:[..]/foo)"
+                    "path+file:[..]/foo#0.0.1"
                 ],
                 "resolve": null,
                 "target_directory": "[..]/foo/target",
@@ -930,7 +931,7 @@ fn alt_reg_metadata() {
                     {
                         "name": "altdep",
                         "version": "0.0.1",
-                        "id": "altdep 0.0.1 (registry+file:[..]/alternative-registry)",
+                        "id": "registry+file:[..]/alternative-registry#altdep@0.0.1",
                         "license": null,
                         "license_file": null,
                         "description": null,
@@ -969,7 +970,7 @@ fn alt_reg_metadata() {
                     {
                         "name": "altdep2",
                         "version": "0.0.1",
-                        "id": "altdep2 0.0.1 (registry+file:[..]/alternative-registry)",
+                        "id": "registry+file:[..]/alternative-registry#altdep2@0.0.1",
                         "license": null,
                         "license_file": null,
                         "description": null,
@@ -995,7 +996,7 @@ fn alt_reg_metadata() {
                     {
                         "name": "bar",
                         "version": "0.0.1",
-                        "id": "bar 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+                        "id": "registry+https://github.com/rust-lang/crates.io-index#bar@0.0.1",
                         "license": null,
                         "license_file": null,
                         "description": null,
@@ -1021,7 +1022,7 @@ fn alt_reg_metadata() {
                     {
                         "name": "foo",
                         "version": "0.0.1",
-                        "id": "foo 0.0.1 (path+file:[..]/foo)",
+                        "id": "path+file:[..]/foo#0.0.1",
                         "license": null,
                         "license_file": null,
                         "description": null,
@@ -1072,7 +1073,7 @@ fn alt_reg_metadata() {
                     {
                         "name": "iodep",
                         "version": "0.0.1",
-                        "id": "iodep 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+                        "id": "registry+https://github.com/rust-lang/crates.io-index#iodep@0.0.1",
                         "license": null,
                         "license_file": null,
                         "description": null,
@@ -1110,10 +1111,10 @@ fn alt_reg_metadata() {
                     }
                 ],
                 "workspace_members": [
-                    "foo 0.0.1 (path+file:[..]/foo)"
+                    "path+file:[..]/foo#0.0.1"
                 ],
                 "workspace_default_members": [
-                    "foo 0.0.1 (path+file:[..]/foo)"
+                    "path+file:[..]/foo#0.0.1"
                 ],
                 "resolve": "{...}",
                 "target_directory": "[..]/foo/target",
@@ -1152,7 +1153,7 @@ fn unknown_registry() {
         .publish();
 
     // Remove "alternative" from config.
-    let cfg_path = paths::home().join(".cargo/config");
+    let cfg_path = paths::home().join(".cargo/config.toml");
     let mut config = fs::read_to_string(&cfg_path).unwrap();
     let start = config.find("[registries.alternative]").unwrap();
     config.insert(start, '#');
@@ -1173,7 +1174,7 @@ fn unknown_registry() {
                 {
                   "name": "bar",
                   "version": "0.0.1",
-                  "id": "bar 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+                  "id": "registry+https://github.com/rust-lang/crates.io-index#bar@0.0.1",
                   "license": null,
                   "license_file": null,
                   "description": null,
@@ -1212,7 +1213,7 @@ fn unknown_registry() {
                 {
                   "name": "baz",
                   "version": "0.0.1",
-                  "id": "baz 0.0.1 (registry+file://[..]/alternative-registry)",
+                  "id": "registry+file://[..]/alternative-registry#baz@0.0.1",
                   "license": null,
                   "license_file": null,
                   "description": null,
@@ -1238,7 +1239,7 @@ fn unknown_registry() {
                 {
                   "name": "foo",
                   "version": "0.0.1",
-                  "id": "foo 0.0.1 (path+file://[..]/foo)",
+                  "id": "path+file://[..]/foo#0.0.1",
                   "license": null,
                   "license_file": null,
                   "description": null,
@@ -1276,10 +1277,10 @@ fn unknown_registry() {
                 }
               ],
               "workspace_members": [
-                "foo 0.0.1 (path+file://[..]/foo)"
+                "path+file://[..]/foo#0.0.1"
               ],
               "workspace_default_members": [
-                "foo 0.0.1 (path+file://[..]/foo)"
+                "path+file://[..]/foo#0.0.1"
               ],
               "resolve": "{...}",
               "target_directory": "[..]/foo/target",
@@ -1295,7 +1296,7 @@ fn unknown_registry() {
 #[cargo_test]
 fn registries_index_relative_url() {
     registry::alt_init();
-    let config = paths::root().join(".cargo/config");
+    let config = paths::root().join(".cargo/config.toml");
     fs::create_dir_all(config.parent().unwrap()).unwrap();
     fs::write(
         &config,
@@ -1333,7 +1334,7 @@ fn registries_index_relative_url() {
 [DOWNLOADED] bar v0.0.1 (registry `relative`)
 [CHECKING] bar v0.0.1 (registry `relative`)
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]s
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]s
 ",
         )
         .run();
@@ -1342,7 +1343,7 @@ fn registries_index_relative_url() {
 #[cargo_test]
 fn registries_index_relative_path_not_allowed() {
     registry::alt_init();
-    let config = paths::root().join(".cargo/config");
+    let config = paths::root().join(".cargo/config.toml");
     fs::create_dir_all(config.parent().unwrap()).unwrap();
     fs::write(
         &config,
@@ -1378,7 +1379,7 @@ fn registries_index_relative_path_not_allowed() {
 error: failed to parse manifest at `{root}/foo/Cargo.toml`
 
 Caused by:
-  invalid index URL for registry `relative` defined in [..]/.cargo/config
+  invalid index URL for registry `relative` defined in [..]/.cargo/config.toml
 
 Caused by:
   invalid url `alternative-registry`: relative URL without a base
@@ -1622,16 +1623,14 @@ fn empty_dependency_registry() {
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] failed to parse manifest at `[CWD]/Cargo.toml`
-
-Caused by:
-  TOML parse error at line 7, column 23
-    |
-  7 |                 bar = { version = \"0.1.0\", registry = \"\" }
-    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  registry name cannot be empty
+[ERROR] registry name cannot be empty
 
 
+ --> Cargo.toml:7:23
+  |
+7 |                 bar = { version = \"0.1.0\", registry = \"\" }
+  |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
 ",
         )
         .run();

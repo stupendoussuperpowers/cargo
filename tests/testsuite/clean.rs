@@ -239,7 +239,7 @@ fn clean_release() {
         .with_stderr(
             "\
 [COMPILING] foo v0.0.1 ([..])
-[FINISHED] release [optimized] target(s) in [..]
+[FINISHED] `release` profile [optimized] target(s) in [..]
 ",
         )
         .run();
@@ -326,7 +326,7 @@ fn build_script() {
 [RUNNING] `rustc [..] build.rs [..]`
 [RUNNING] `[..]build-script-build`
 [RUNNING] `rustc [..] src/main.rs [..]`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -830,7 +830,7 @@ fn clean_dry_run() {
     // Verify it didn't delete anything.
     let after = p.build_dir().ls_r();
     assert_eq!(before, after);
-    let expected = cargo::util::iter_join(before.iter().map(|p| p.to_str().unwrap()), "\n");
+    let expected = itertools::join(before.iter().map(|p| p.to_str().unwrap()), "\n");
     eprintln!("{expected}");
     // Verify the verbose output.
     p.cargo("clean --dry-run -v")

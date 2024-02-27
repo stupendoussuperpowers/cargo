@@ -37,14 +37,14 @@ use crate::util::toml_mut::is_sorted;
 use crate::util::toml_mut::manifest::DepTable;
 use crate::util::toml_mut::manifest::LocalManifest;
 use crate::CargoResult;
-use crate::Config;
+use crate::GlobalContext;
 use crate_spec::CrateSpec;
 
 /// Information on what dependencies should be added
 #[derive(Clone, Debug)]
 pub struct AddOptions<'a> {
     /// Configuration information for cargo operations
-    pub config: &'a Config,
+    pub gctx: &'a GlobalContext,
     /// Package to add dependencies to
     pub spec: &'a Package,
     /// Dependencies to add or modify
@@ -77,11 +77,11 @@ pub fn add(workspace: &Workspace<'_>, options: &AddOptions<'_>) -> CargoResult<(
         );
     }
 
-    let mut registry = PackageRegistry::new(options.config)?;
+    let mut registry = PackageRegistry::new(options.gctx)?;
 
     let deps = {
         let _lock = options
-            .config
+            .gctx
             .acquire_package_cache_lock(CacheLockMode::DownloadExclusive)?;
         registry.lock_patches();
         options
@@ -95,7 +95,7 @@ pub fn add(workspace: &Workspace<'_>, options: &AddOptions<'_>) -> CargoResult<(
                     &options.spec,
                     &options.section,
                     options.honor_rust_version,
-                    options.config,
+                    options.gctx,
                     &mut registry,
                 )
             })
@@ -114,7 +114,7 @@ pub fn add(workspace: &Workspace<'_>, options: &AddOptions<'_>) -> CargoResult<(
             })
         });
     for dep in deps {
-        print_action_msg(&mut options.config.shell(), &dep, &dep_table)?;
+        print_action_msg(&mut options.gctx.shell(), &dep, &dep_table)?;
         if let Some(Source::Path(src)) = dep.source() {
             if src.path == manifest.path.parent().unwrap_or_else(|| Path::new("")) {
                 anyhow::bail!(
@@ -194,7 +194,7 @@ pub fn add(workspace: &Workspace<'_>, options: &AddOptions<'_>) -> CargoResult<(
             anyhow::bail!(message.trim().to_owned());
         }
 
-        print_dep_table_msg(&mut options.config.shell(), &dep)?;
+        print_dep_table_msg(&mut options.gctx.shell(), &dep)?;
 
         manifest.insert_into_table(&dep_table, &dep)?;
         if dep.optional == Some(true) {
@@ -208,6 +208,10 @@ pub fn add(workspace: &Workspace<'_>, options: &AddOptions<'_>) -> CargoResult<(
                     let new_feature: toml_edit::Value =
                         [format!("dep:{dep_name}")].iter().collect();
                     table[dep_key] = toml_edit::value(new_feature);
+                    options
+                        .gctx
+                        .shell()
+                        .status("Adding", format!("feature `{dep_key}`"))?;
                 }
             }
         }
@@ -224,7 +228,7 @@ pub fn add(workspace: &Workspace<'_>, options: &AddOptions<'_>) -> CargoResult<(
         }
     }
 
-    if options.config.locked() {
+    if options.gctx.locked() {
         let new_raw_manifest = manifest.to_string();
         if original_raw_manifest != new_raw_manifest {
             anyhow::bail!(
@@ -235,7 +239,7 @@ pub fn add(workspace: &Workspace<'_>, options: &AddOptions<'_>) -> CargoResult<(
     }
 
     if options.dry_run {
-        options.config.shell().warn("aborting add due to dry run")?;
+        options.gctx.shell().warn("aborting add due to dry run")?;
     } else {
         manifest.write()?;
     }
@@ -284,7 +288,7 @@ fn resolve_dependency(
     spec: &Package,
     section: &DepTable,
     honor_rust_version: bool,
-    config: &Config,
+    gctx: &GlobalContext,
     registry: &mut PackageRegistry<'_>,
 ) -> CargoResult<DependencyUI> {
     let crate_spec = arg
@@ -310,16 +314,16 @@ fn resolve_dependency(
                 anyhow::bail!("cannot specify a git URL (`{url}`) with a version (`{v}`).");
             }
             let dependency = crate_spec.to_dependency()?.set_source(src);
-            let selected = select_package(&dependency, config, registry)?;
+            let selected = select_package(&dependency, gctx, registry)?;
             if dependency.name != selected.name {
-                config.shell().warn(format!(
+                gctx.shell().warn(format!(
                     "translating `{}` to `{}`",
                     dependency.name, selected.name,
                 ))?;
             }
             selected
         } else {
-            let mut source = crate::sources::GitSource::new(src.source_id()?, config)?;
+            let mut source = crate::sources::GitSource::new(src.source_id()?, gctx)?;
             let packages = source.read_packages()?;
             let package = infer_package_for_git_source(packages, &src)?;
             Dependency::from(package.summary())
@@ -335,16 +339,16 @@ fn resolve_dependency(
                 anyhow::bail!("cannot specify a path (`{raw_path}`) with a version (`{v}`).");
             }
             let dependency = crate_spec.to_dependency()?.set_source(src);
-            let selected = select_package(&dependency, config, registry)?;
+            let selected = select_package(&dependency, gctx, registry)?;
             if dependency.name != selected.name {
-                config.shell().warn(format!(
+                gctx.shell().warn(format!(
                     "translating `{}` to `{}`",
                     dependency.name, selected.name,
                 ))?;
             }
             selected
         } else {
-            let source = crate::sources::PathSource::new(&path, src.source_id()?, config);
+            let source = crate::sources::PathSource::new(&path, src.source_id()?, gctx);
             let package = source
                 .read_packages()?
                 .pop()
@@ -400,12 +404,12 @@ fn resolve_dependency(
                 &dependency,
                 false,
                 honor_rust_version,
-                config,
+                gctx,
                 registry,
             )?;
 
             if dependency.name != latest.name {
-                config.shell().warn(format!(
+                gctx.shell().warn(format!(
                     "translating `{}` to `{}`",
                     dependency.name, latest.name,
                 ))?;
@@ -430,14 +434,14 @@ fn resolve_dependency(
         dependency = dependency.clear_version();
     }
 
-    let query = dependency.query(config)?;
+    let query = dependency.query(gctx)?;
     let query = match query {
         MaybeWorkspace::Workspace(_workspace) => {
             let dep = find_workspace_dep(dependency.toml_key(), ws.root_manifest())?;
             if let Some(features) = dep.features.clone() {
                 dependency = dependency.set_inherited_features(features);
             }
-            let query = dep.query(config)?;
+            let query = dep.query(gctx)?;
             match query {
                 MaybeWorkspace::Workspace(_) => {
                     unreachable!("This should have been caught when parsing a workspace root")
@@ -574,17 +578,17 @@ fn get_latest_dependency(
     dependency: &Dependency,
     _flag_allow_prerelease: bool,
     honor_rust_version: bool,
-    config: &Config,
+    gctx: &GlobalContext,
     registry: &mut PackageRegistry<'_>,
 ) -> CargoResult<Dependency> {
-    let query = dependency.query(config)?;
+    let query = dependency.query(gctx)?;
     match query {
         MaybeWorkspace::Workspace(_) => {
             unreachable!("registry dependencies required, found a workspace dependency");
         }
         MaybeWorkspace::Other(query) => {
             let possibilities = loop {
-                match registry.query_vec(&query, QueryKind::Fuzzy) {
+                match registry.query_vec(&query, QueryKind::Normalized) {
                     std::task::Poll::Ready(res) => {
                         break res?;
                     }
@@ -610,7 +614,7 @@ fn get_latest_dependency(
                 )
             })?;
 
-            if config.cli_unstable().msrv_policy && honor_rust_version {
+            if gctx.cli_unstable().msrv_policy && honor_rust_version {
                 fn parse_msrv(comp: &RustVersion) -> (u64, u64, u64) {
                     (comp.major, comp.minor.unwrap_or(0), comp.patch.unwrap_or(0))
                 }
@@ -646,7 +650,7 @@ fn get_latest_dependency(
                         })?;
 
                     if latest_msrv.version() < latest.version() {
-                        config.shell().warn(format_args!(
+                        gctx.shell().warn(format_args!(
                             "ignoring `{dependency}@{latest_version}` (which has a rust-version of \
                              {latest_rust_version}) to satisfy this package's rust-version of \
                              {rust_version} (use `--ignore-rust-version` to override)",
@@ -696,10 +700,10 @@ fn rust_version_incompat_error(
 
 fn select_package(
     dependency: &Dependency,
-    config: &Config,
+    gctx: &GlobalContext,
     registry: &mut PackageRegistry<'_>,
 ) -> CargoResult<Dependency> {
-    let query = dependency.query(config)?;
+    let query = dependency.query(gctx)?;
     match query {
         MaybeWorkspace::Workspace(_) => {
             unreachable!("path or git dependency expected, found workspace dependency");
@@ -707,7 +711,7 @@ fn select_package(
         MaybeWorkspace::Other(query) => {
             let possibilities = loop {
                 // Exact to avoid returning all for path/git
-                match registry.query_vec(&query, QueryKind::Exact) {
+                match registry.query_vec(&query, QueryKind::Normalized) {
                     std::task::Poll::Ready(res) => {
                         break res?;
                     }
@@ -934,7 +938,7 @@ fn populate_available_features(
     }
 
     let possibilities = loop {
-        match registry.query_vec(&query, QueryKind::Exact) {
+        match registry.query_vec(&query, QueryKind::Normalized) {
             std::task::Poll::Ready(res) => {
                 break res?;
             }
@@ -999,7 +1003,6 @@ fn print_action_msg(shell: &mut Shell, dep: &DependencyUI, section: &[String]) -
         format!("{} for target `{}`", &section[2], &section[1])
     };
     write!(message, " {section}")?;
-    write!(message, ".")?;
     shell.status("Adding", message)
 }
 
@@ -1009,9 +1012,8 @@ fn print_dep_table_msg(shell: &mut Shell, dep: &DependencyUI) -> CargoResult<()>
     }
 
     let stderr = shell.err();
-    let good = style::GOOD.render();
-    let error = style::ERROR.render();
-    let reset = anstyle::Reset.render();
+    let good = style::GOOD;
+    let error = style::ERROR;
 
     let (activated, deactivated) = dep.features();
     if !activated.is_empty() || !deactivated.is_empty() {
@@ -1026,7 +1028,7 @@ fn print_dep_table_msg(shell: &mut Shell, dep: &DependencyUI) -> CargoResult<()>
 
         if total_activated <= MAX_FEATURE_PRINTS {
             for feat in activated {
-                writeln!(stderr, "{prefix}{good}+{reset} {feat}")?;
+                writeln!(stderr, "{prefix}{good}+{good:#} {feat}")?;
             }
         } else {
             writeln!(stderr, "{prefix}{total_activated} activated features")?;
@@ -1034,7 +1036,7 @@ fn print_dep_table_msg(shell: &mut Shell, dep: &DependencyUI) -> CargoResult<()>
 
         if total_activated + total_deactivated <= MAX_FEATURE_PRINTS {
             for feat in deactivated {
-                writeln!(stderr, "{prefix}{error}-{reset} {feat}")?;
+                writeln!(stderr, "{prefix}{error}-{error:#} {feat}")?;
             }
         } else {
             writeln!(stderr, "{prefix}{total_deactivated} deactivated features")?;

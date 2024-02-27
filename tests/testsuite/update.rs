@@ -109,6 +109,7 @@ fn transitive_minor_update() {
         .with_stderr(
             "\
 [UPDATING] `[..]` index
+[NOTE] pass `--verbose` to see 2 unchanged dependencies behind latest
 ",
         )
         .run();
@@ -160,6 +161,7 @@ fn conservative() {
             "\
 [UPDATING] `[..]` index
 [UPDATING] serde v0.1.0 -> v0.1.1
+[NOTE] pass `--verbose` to see 1 unchanged dependencies behind latest
 ",
         )
         .run();
@@ -386,6 +388,7 @@ fn update_precise() {
             "\
 [UPDATING] `[..]` index
 [DOWNGRADING] serde v0.2.1 -> v0.2.0
+[NOTE] pass `--verbose` to see 1 unchanged dependencies behind latest
 ",
         )
         .run();
@@ -520,6 +523,7 @@ fn update_precise_do_not_force_update_deps() {
             "\
 [UPDATING] `[..]` index
 [UPDATING] serde v0.2.1 -> v0.2.2
+[NOTE] pass `--verbose` to see 1 unchanged dependencies behind latest
 ",
         )
         .run();
@@ -700,7 +704,7 @@ fn update_precise_first_run() {
       "edition": "2015",
       "features": {},
       "homepage": null,
-      "id": "bar 0.0.1 (path+file://[..]/foo)",
+      "id": "path+file://[..]/foo#bar@0.0.1",
       "keywords": [],
       "license": null,
       "license_file": null,
@@ -741,7 +745,7 @@ fn update_precise_first_run() {
       "edition": "2015",
       "features": {},
       "homepage": null,
-      "id": "serde 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+      "id": "registry+https://github.com/rust-lang/crates.io-index#serde@0.2.0",
       "keywords": [],
       "license": null,
       "license_file": null,
@@ -777,7 +781,7 @@ fn update_precise_first_run() {
     "nodes": [
       {
         "dependencies": [
-          "serde 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)"
+          "registry+https://github.com/rust-lang/crates.io-index#serde@0.2.0"
         ],
         "deps": [
           {
@@ -788,28 +792,28 @@ fn update_precise_first_run() {
               }
             ],
             "name": "serde",
-            "pkg": "serde 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)"
+            "pkg": "registry+https://github.com/rust-lang/crates.io-index#serde@0.2.0"
           }
         ],
         "features": [],
-        "id": "bar 0.0.1 (path+file://[..]/foo)"
+        "id": "path+file://[..]/foo#bar@0.0.1"
       },
       {
         "dependencies": [],
         "deps": [],
         "features": [],
-        "id": "serde 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)"
+        "id": "registry+https://github.com/rust-lang/crates.io-index#serde@0.2.0"
       }
     ],
-    "root": "bar 0.0.1 (path+file://[..]/foo)"
+    "root": "path+file://[..]/foo#bar@0.0.1"
   },
   "target_directory": "[..]/foo/target",
   "version": 1,
   "workspace_members": [
-    "bar 0.0.1 (path+file://[..]/foo)"
+    "path+file://[..]/foo#bar@0.0.1"
   ],
   "workspace_default_members": [
-    "bar 0.0.1 (path+file://[..]/foo)"
+    "path+file://[..]/foo#bar@0.0.1"
   ],
   "workspace_root": "[..]/foo",
   "metadata": null
@@ -898,6 +902,7 @@ fn dry_run_update() {
             "\
 [UPDATING] `[..]` index
 [UPDATING] serde v0.1.0 -> v0.1.1
+[NOTE] pass `--verbose` to see 1 unchanged dependencies behind latest
 [WARNING] not updating lockfile due to dry run
 ",
         )
@@ -1269,6 +1274,332 @@ rustdns.workspace = true
             "\
 [UPDATING] crate1 v2.29.8 ([CWD]/crate1) -> v2.29.81
 [UPDATING] crate2 v2.29.8 ([CWD]/crate2) -> v2.29.81",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn update_precise_git_revisions() {
+    let (git_project, git_repo) = git::new_repo("git", |p| {
+        p.file("Cargo.toml", &basic_lib_manifest("git"))
+            .file("src/lib.rs", "")
+    });
+    let tag_name = "Nazgûl";
+    git::tag(&git_repo, tag_name);
+    let tag_commit_id = git_repo.head().unwrap().target().unwrap().to_string();
+
+    git_project.change_file("src/lib.rs", "fn f() {}");
+    git::add(&git_repo);
+    let head_id = git::commit(&git_repo).to_string();
+    let short_id = &head_id[..8];
+    let url = git_project.url();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            &format!(
+                r#"
+                    [package]
+                    name = "foo"
+                    version = "0.1.0"
+
+                    [dependencies]
+                    git = {{ git = '{url}' }}
+                "#
+            ),
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("fetch")
+        .with_stderr(format!("[UPDATING] git repository `{url}`"))
+        .run();
+
+    assert!(p.read_lockfile().contains(&head_id));
+
+    p.cargo("update git --precise")
+        .arg(tag_name)
+        .with_stderr(format!(
+            "\
+[UPDATING] git repository `{url}`
+[UPDATING] git v0.5.0 ([..]) -> #{}",
+            &tag_commit_id[..8],
+        ))
+        .run();
+
+    assert!(p.read_lockfile().contains(&tag_commit_id));
+    assert!(!p.read_lockfile().contains(&head_id));
+
+    p.cargo("update git --precise")
+        .arg(short_id)
+        .with_stderr(format!(
+            "\
+[UPDATING] git repository `{url}`
+[UPDATING] git v0.5.0 ([..]) -> #{short_id}",
+        ))
+        .run();
+
+    assert!(p.read_lockfile().contains(&head_id));
+    assert!(!p.read_lockfile().contains(&tag_commit_id));
+
+    // updating back to tag still requires a git fetch,
+    // as the ref may change over time.
+    p.cargo("update git --precise")
+        .arg(tag_name)
+        .with_stderr(format!(
+            "\
+[UPDATING] git repository `{url}`
+[UPDATING] git v0.5.0 ([..]) -> #{}",
+            &tag_commit_id[..8],
+        ))
+        .run();
+
+    assert!(p.read_lockfile().contains(&tag_commit_id));
+    assert!(!p.read_lockfile().contains(&head_id));
+
+    // Now make a tag looks like an oid.
+    // It requires a git fetch, as the oid cannot be found in preexisting git db.
+    let arbitrary_tag: String = std::iter::repeat('a').take(head_id.len()).collect();
+    git::tag(&git_repo, &arbitrary_tag);
+
+    p.cargo("update git --precise")
+        .arg(&arbitrary_tag)
+        .with_stderr(format!(
+            "\
+[UPDATING] git repository `{url}`
+[UPDATING] git v0.5.0 ([..]) -> #{}",
+            &head_id[..8],
+        ))
+        .run();
+
+    assert!(p.read_lockfile().contains(&head_id));
+    assert!(!p.read_lockfile().contains(&tag_commit_id));
+}
+
+#[cargo_test]
+fn precise_yanked() {
+    Package::new("bar", "0.1.0").publish();
+    Package::new("bar", "0.1.1").yanked(true).publish();
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+
+                [dependencies]
+                bar = "0.1"
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("generate-lockfile").run();
+
+    // Use non-yanked version.
+    let lockfile = p.read_lockfile();
+    assert!(lockfile.contains("\nname = \"bar\"\nversion = \"0.1.0\""));
+
+    p.cargo("update --precise 0.1.1 bar")
+        .with_status(101)
+        .with_stderr(
+            "\
+[UPDATING] `dummy-registry` index
+[ERROR] failed to get `bar` as a dependency of package `foo v0.0.0 ([CWD])`
+
+Caused by:
+  failed to query replaced source registry `crates-io`
+
+Caused by:
+  the `--precise <yanked-version>` flag is unstable[..]
+  See [..]
+  See [..]
+",
+        )
+        .run();
+
+    p.cargo("update --precise 0.1.1 bar")
+        .masquerade_as_nightly_cargo(&["--precise <yanked-version>"])
+        .arg("-Zunstable-options")
+        .with_stderr(
+            "\
+[UPDATING] `dummy-registry` index
+[WARNING] selected package `bar@0.1.1` was yanked by the author
+[NOTE] if possible, try a compatible non-yanked version
+[UPDATING] bar v0.1.0 -> v0.1.1
+",
+        )
+        .run();
+
+    // Use yanked version.
+    let lockfile = p.read_lockfile();
+    assert!(lockfile.contains("\nname = \"bar\"\nversion = \"0.1.1\""));
+}
+
+#[cargo_test]
+fn precise_yanked_multiple_presence() {
+    Package::new("bar", "0.1.0").publish();
+    Package::new("bar", "0.1.1").yanked(true).publish();
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+
+                [dependencies]
+                bar = "0.1"
+                baz = { package = "bar", version = "0.1" }
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("generate-lockfile").run();
+
+    // Use non-yanked version.
+    let lockfile = p.read_lockfile();
+    assert!(lockfile.contains("\nname = \"bar\"\nversion = \"0.1.0\""));
+
+    p.cargo("update --precise 0.1.1 bar")
+        .masquerade_as_nightly_cargo(&["--precise <yanked-version>"])
+        .arg("-Zunstable-options")
+        .with_stderr(
+            "\
+[UPDATING] `dummy-registry` index
+[WARNING] selected package `bar@0.1.1` was yanked by the author
+[NOTE] if possible, try a compatible non-yanked version
+[UPDATING] bar v0.1.0 -> v0.1.1
+",
+        )
+        .run();
+
+    // Use yanked version.
+    let lockfile = p.read_lockfile();
+    assert!(lockfile.contains("\nname = \"bar\"\nversion = \"0.1.1\""));
+}
+
+#[cargo_test]
+fn report_behind() {
+    Package::new("two-ver", "0.1.0").publish();
+    Package::new("two-ver", "0.2.0").publish();
+    Package::new("pre", "1.0.0-alpha.0").publish();
+    Package::new("pre", "1.0.0-alpha.1").publish();
+    Package::new("breaking", "0.1.0").publish();
+    Package::new("breaking", "0.2.0").publish();
+    Package::new("breaking", "0.2.1-alpha.0").publish();
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+
+                [dependencies]
+                breaking = "0.1"
+                pre = "=1.0.0-alpha.0"
+                two-ver = "0.2.0"
+                two-ver-one = { version = "0.1.0", package = "two-ver" }
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("generate-lockfile").run();
+    Package::new("breaking", "0.1.1").publish();
+
+    p.cargo("update --dry-run")
+        .with_stderr(
+            "\
+[UPDATING] `dummy-registry` index
+[UPDATING] breaking v0.1.0 -> v0.1.1 (latest: v0.2.0)
+[NOTE] pass `--verbose` to see 2 unchanged dependencies behind latest
+[WARNING] not updating lockfile due to dry run
+",
+        )
+        .run();
+
+    p.cargo("update --dry-run --verbose")
+        .with_stderr(
+            "\
+[UPDATING] `dummy-registry` index
+[UPDATING] breaking v0.1.0 -> v0.1.1 (latest: v0.2.0)
+[UNCHANGED] pre v1.0.0-alpha.0 (latest: v1.0.0-alpha.1)
+[UNCHANGED] two-ver v0.1.0 (latest: v0.2.0)
+[NOTE] to see how you depend on a package, run `cargo tree --invert --package <dep>@<ver>`
+[WARNING] not updating lockfile due to dry run
+",
+        )
+        .run();
+
+    p.cargo("update").run();
+
+    p.cargo("update --dry-run")
+        .with_stderr(
+            "\
+[UPDATING] `dummy-registry` index
+[NOTE] pass `--verbose` to see 3 unchanged dependencies behind latest
+[WARNING] not updating lockfile due to dry run
+",
+        )
+        .run();
+
+    p.cargo("update --dry-run --verbose")
+        .with_stderr(
+            "\
+[UPDATING] `dummy-registry` index
+[UNCHANGED] breaking v0.1.1 (latest: v0.2.0)
+[UNCHANGED] pre v1.0.0-alpha.0 (latest: v1.0.0-alpha.1)
+[UNCHANGED] two-ver v0.1.0 (latest: v0.2.0)
+[NOTE] to see how you depend on a package, run `cargo tree --invert --package <dep>@<ver>`
+[WARNING] not updating lockfile due to dry run
+",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn update_with_missing_feature() {
+    // Attempting to update a package to a version with a missing feature
+    // should produce a warning.
+    Package::new("bar", "0.1.0").feature("feat1", &[]).publish();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+
+            [dependencies]
+            bar = {version="0.1", features=["feat1"]}
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+    p.cargo("generate-lockfile").run();
+
+    // Publish an update that is missing the feature.
+    Package::new("bar", "0.1.1").publish();
+
+    p.cargo("update")
+        .with_stderr(
+            "\
+[UPDATING] `[..]` index
+[NOTE] pass `--verbose` to see 1 unchanged dependencies behind latest
+",
+        )
+        .run();
+
+    // Publish a fixed version, should not warn.
+    Package::new("bar", "0.1.2").feature("feat1", &[]).publish();
+    p.cargo("update")
+        .with_stderr(
+            "\
+[UPDATING] `[..]` index
+[UPDATING] bar v0.1.0 -> v0.1.2
+",
         )
         .run();
 }

@@ -4,7 +4,7 @@ use cargo::{
     core::compiler::CompileMode,
     core::{Shell, Workspace},
     ops::CompileOptions,
-    Config,
+    GlobalContext,
 };
 use cargo_test_support::compare;
 use cargo_test_support::paths::{root, CargoPathExt};
@@ -116,7 +116,7 @@ fn incremental_config() {
     let p = project()
         .file("src/main.rs", "fn main() {}")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
                 [build]
                 incremental = false
@@ -353,15 +353,13 @@ fn cargo_compile_with_invalid_manifest2() {
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] failed to parse manifest at `[..]`
-
-Caused by:
-  TOML parse error at line 3, column 23
-    |
-  3 |                 foo = bar
-    |                       ^
-  invalid string
-  expected `\"`, `'`
+[ERROR] invalid string
+expected `\"`, `'`
+ --> Cargo.toml:3:23
+  |
+3 |                 foo = bar
+  |                       ^
+  |
 ",
         )
         .run();
@@ -375,15 +373,13 @@ fn cargo_compile_with_invalid_manifest3() {
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] failed to parse manifest at `[..]`
-
-Caused by:
-  TOML parse error at line 1, column 5
-    |
-  1 | a = bar
-    |     ^
-  invalid string
-  expected `\"`, `'`
+[ERROR] invalid string
+expected `\"`, `'`
+ --> src/Cargo.toml:1:5
+  |
+1 | a = bar
+  |     ^
+  |
 ",
         )
         .run();
@@ -434,14 +430,12 @@ fn cargo_compile_with_invalid_version() {
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] failed to parse manifest at `[..]`
-
-Caused by:
-  TOML parse error at line 4, column 19
-    |
-  4 |         version = \"1.0\"
-    |                   ^^^^^
-  unexpected end of input while parsing minor version number
+[ERROR] unexpected end of input while parsing minor version number
+ --> Cargo.toml:4:19
+  |
+4 |         version = \"1.0\"
+  |                   ^^^^^
+  |
 ",
         )
         .run();
@@ -457,14 +451,12 @@ fn cargo_compile_with_empty_package_name() {
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] failed to parse manifest at `[..]`
-
-Caused by:
-  TOML parse error at line 3, column 16
-    |
-  3 |         name = \"\"
-    |                ^^
-  package name cannot be empty
+[ERROR] package name cannot be empty
+ --> Cargo.toml:3:16
+  |
+3 |         name = \"\"
+  |                ^^
+  |
 ",
         )
         .run();
@@ -480,14 +472,12 @@ fn cargo_compile_with_invalid_package_name() {
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] failed to parse manifest at `[..]`
-
-Caused by:
-  TOML parse error at line 3, column 16
-    |
-  3 |         name = \"foo::bar\"
-    |                ^^^^^^^^^^
-  invalid character `:` in package name: `foo::bar`, [..]
+[ERROR] invalid character `:` in package name: `foo::bar`, characters must be Unicode XID characters (numbers, `-`, `_`, or most letters)
+ --> Cargo.toml:3:16
+  |
+3 |         name = \"foo::bar\"
+  |                ^^^^^^^^^^
+  |
 ",
         )
         .run();
@@ -612,9 +602,9 @@ fn cargo_compile_api_exposes_artifact_paths() {
         .build();
 
     let shell = Shell::from_write(Box::new(Vec::new()));
-    let config = Config::new(shell, env::current_dir().unwrap(), paths::home());
-    let ws = Workspace::new(&p.root().join("Cargo.toml"), &config).unwrap();
-    let compile_options = CompileOptions::new(ws.config(), CompileMode::Build).unwrap();
+    let gctx = GlobalContext::new(shell, env::current_dir().unwrap(), paths::home());
+    let ws = Workspace::new(&p.root().join("Cargo.toml"), &gctx).unwrap();
+    let compile_options = CompileOptions::new(ws.gctx(), CompileMode::Build).unwrap();
 
     let result = cargo::ops::compile(&ws, &compile_options).unwrap();
 
@@ -1187,14 +1177,12 @@ fn cargo_compile_with_invalid_dep_rename() {
         .with_status(101)
         .with_stderr(
             "\
-error: failed to parse manifest at `[..]`
-
-Caused by:
-  TOML parse error at line 7, column 17
-    |
-  7 |                 \"haha this isn't a valid name 🐛\" = { package = \"libc\", version = \"0.1\" }
-    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  invalid character ` ` in package name: `haha this isn't a valid name 🐛`, characters must be Unicode XID characters (numbers, `-`, `_`, or most letters)
+[ERROR] invalid character ` ` in package name: `haha this isn't a valid name 🐛`, characters must be Unicode XID characters (numbers, `-`, `_`, or most letters)
+ --> Cargo.toml:7:17
+  |
+7 |                 \"haha this isn't a valid name 🐛\" = { package = \"libc\", version = \"0.1\" }
+  |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
 ",
         )
         .run();
@@ -1452,7 +1440,7 @@ fn cargo_default_env_metadata_env_var() {
         --out-dir [..] \
         -L dependency=[CWD]/target/debug/deps \
         --extern bar=[CWD]/target/debug/deps/{prefix}bar{suffix}`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]",
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]",
             prefix = env::consts::DLL_PREFIX,
             suffix = env::consts::DLL_SUFFIX,
         ))
@@ -1480,7 +1468,7 @@ fn cargo_default_env_metadata_env_var() {
         --out-dir [..] \
         -L dependency=[CWD]/target/debug/deps \
         --extern bar=[CWD]/target/debug/deps/{prefix}bar-[..]{suffix}`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
             prefix = env::consts::DLL_PREFIX,
             suffix = env::consts::DLL_SUFFIX,
@@ -2343,7 +2331,7 @@ fn lto_build() {
         -C opt-level=3 \
         -C lto \
         [..]
-[FINISHED] release [optimized] target(s) in [..]
+[FINISHED] `release` profile [optimized] target(s) in [..]
 ",
         )
         .run();
@@ -2361,7 +2349,7 @@ fn verbose_build() {
         -C metadata=[..] \
         --out-dir [..] \
         -L dependency=[CWD]/target/debug/deps`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -2380,7 +2368,7 @@ fn verbose_release_build() {
         -C metadata=[..] \
         --out-dir [..] \
         -L dependency=[CWD]/target/release/deps`
-[FINISHED] release [optimized] target(s) in [..]
+[FINISHED] `release` profile [optimized] target(s) in [..]
 ",
         )
         .run();
@@ -2399,7 +2387,7 @@ fn verbose_release_build_short() {
         -C metadata=[..] \
         --out-dir [..] \
         -L dependency=[CWD]/target/release/deps`
-[FINISHED] release [optimized] target(s) in [..]
+[FINISHED] `release` profile [optimized] target(s) in [..]
 ",
         )
         .run();
@@ -2459,7 +2447,7 @@ fn verbose_release_build_deps() {
         -L dependency=[CWD]/target/release/deps \
         --extern foo=[CWD]/target/release/deps/{prefix}foo{suffix} \
         --extern foo=[CWD]/target/release/deps/libfoo.rlib`
-[FINISHED] release [optimized] target(s) in [..]
+[FINISHED] `release` profile [optimized] target(s) in [..]
 ",
             prefix = env::consts::DLL_PREFIX,
             suffix = env::consts::DLL_SUFFIX
@@ -3046,7 +3034,7 @@ fn lib_with_standard_name() {
         .with_stderr(
             "\
 [COMPILING] syntax v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -3162,7 +3150,7 @@ fn freshness_ignores_excluded() {
         .with_stderr(
             "\
 [COMPILING] foo v0.0.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -3216,7 +3204,7 @@ fn rebuild_preserves_out_dir() {
         .with_stderr(
             "\
 [COMPILING] foo v0.0.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -3226,7 +3214,7 @@ fn rebuild_preserves_out_dir() {
         .with_stderr(
             "\
 [COMPILING] foo v0.0.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -3328,7 +3316,7 @@ fn bad_cargo_config() {
     let foo = project()
         .file("Cargo.toml", &basic_manifest("foo", "0.0.0"))
         .file("src/lib.rs", "")
-        .file(".cargo/config", "this is not valid toml")
+        .file(".cargo/config.toml", "this is not valid toml")
         .build();
     foo.cargo("build -v")
         .with_status(101)
@@ -3957,7 +3945,7 @@ fn custom_target_dir_env() {
     assert!(p.root().join("foo2/target/debug").join(&exe_name).is_file());
 
     p.change_file(
-        ".cargo/config",
+        ".cargo/config.toml",
         r#"
             [build]
             target-dir = "foo/target"
@@ -3984,7 +3972,7 @@ fn custom_target_dir_line_parameter() {
     assert!(p.root().join("target/debug").join(&exe_name).is_file());
 
     p.change_file(
-        ".cargo/config",
+        ".cargo/config.toml",
         r#"
             [build]
             target-dir = "foo/target"
@@ -4172,7 +4160,7 @@ fn compiler_json_error_format() {
         r#"
             {
                 "reason":"compiler-artifact",
-                "package_id":"foo 0.5.0 ([..])",
+                "package_id":"path+file:///[..]/foo#0.5.0",
                 "manifest_path": "[..]",
                 "target":{
                     "kind":["custom-build"],
@@ -4199,7 +4187,7 @@ fn compiler_json_error_format() {
 
             {
                 "reason":"compiler-message",
-                "package_id":"bar 0.5.0 ([..])",
+                "package_id":"path+file:///[..]/bar#0.5.0",
                 "manifest_path": "[..]",
                 "target":{
                     "kind":["lib"],
@@ -4225,7 +4213,7 @@ fn compiler_json_error_format() {
                 },
                 "executable": null,
                 "features": [],
-                "package_id":"bar 0.5.0 ([..])",
+                "package_id":"path+file:///[..]/bar#0.5.0",
                 "manifest_path": "[..]",
                 "target":{
                     "kind":["lib"],
@@ -4246,7 +4234,7 @@ fn compiler_json_error_format() {
 
             {
                 "reason":"build-script-executed",
-                "package_id":"foo 0.5.0 ([..])",
+                "package_id":"path+file:///[..]/foo#0.5.0",
                 "linked_libs":[],
                 "linked_paths":[],
                 "env":[],
@@ -4256,7 +4244,7 @@ fn compiler_json_error_format() {
 
             {
                 "reason":"compiler-message",
-                "package_id":"foo 0.5.0 ([..])",
+                "package_id":"path+file:///[..]/foo#0.5.0",
                 "manifest_path": "[..]",
                 "target":{
                     "kind":["bin"],
@@ -4273,7 +4261,7 @@ fn compiler_json_error_format() {
 
             {
                 "reason":"compiler-artifact",
-                "package_id":"foo 0.5.0 ([..])",
+                "package_id":"path+file:///[..]/foo#0.5.0",
                 "manifest_path": "[..]",
                 "target":{
                     "kind":["bin"],
@@ -4344,7 +4332,7 @@ fn message_format_json_forward_stderr() {
             r#"
                 {
                     "reason":"compiler-message",
-                    "package_id":"foo 0.5.0 ([..])",
+                    "package_id":"path+file:///[..]/foo#0.5.0",
                     "manifest_path": "[..]",
                     "target":{
                         "kind":["bin"],
@@ -4361,7 +4349,7 @@ fn message_format_json_forward_stderr() {
 
                 {
                     "reason":"compiler-artifact",
-                    "package_id":"foo 0.5.0 ([..])",
+                    "package_id":"path+file:///[..]/foo#0.5.0",
                     "manifest_path": "[..]",
                     "target":{
                         "kind":["bin"],
@@ -4417,7 +4405,7 @@ fn no_warn_about_package_metadata() {
     p.cargo("build")
         .with_stderr(
             "[..] foo v0.0.1 ([..])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]\n",
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
         )
         .run();
 }
@@ -4454,7 +4442,7 @@ fn no_warn_about_workspace_metadata() {
     p.cargo("build")
         .with_stderr(
             "[..] foo v0.0.1 ([..])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]\n",
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
         )
         .run();
 }
@@ -4523,7 +4511,7 @@ fn build_all_workspace() {
             "\
 [COMPILING] bar v0.1.0 ([..])
 [COMPILING] foo v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -4556,7 +4544,7 @@ fn build_all_exclude() {
             "\
 [COMPILING] foo v0.1.0 ([..])
 [COMPILING] bar v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -4625,7 +4613,7 @@ fn build_all_exclude_not_found() {
 [WARNING] excluded package(s) `baz` not found in workspace [..]
 [COMPILING] foo v0.1.0 ([..])
 [COMPILING] bar v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -4658,7 +4646,7 @@ fn build_all_exclude_glob() {
             "\
 [COMPILING] foo v0.1.0 ([..])
 [COMPILING] bar v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -4690,7 +4678,7 @@ fn build_all_exclude_glob_not_found() {
 [WARNING] excluded package pattern(s) `*z` not found in workspace [..]
 [COMPILING] [..] v0.1.0 ([..])
 [COMPILING] [..] v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -4739,7 +4727,7 @@ fn build_all_workspace_implicit_examples() {
         .with_stderr(
             "[..] Compiling bar v0.1.0 ([..])\n\
              [..] Compiling foo v0.1.0 ([..])\n\
-             [..] Finished dev [unoptimized + debuginfo] target(s) in [..]\n",
+             [..] Finished `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
         )
         .run();
     assert!(!p.bin("a").is_file());
@@ -4774,7 +4762,7 @@ fn build_all_virtual_manifest() {
             "\
 [COMPILING] baz v0.1.0 ([..])
 [COMPILING] bar v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -4802,7 +4790,7 @@ fn build_virtual_manifest_all_implied() {
             "\
 [COMPILING] baz v0.1.0 ([..])
 [COMPILING] bar v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -4829,7 +4817,7 @@ fn build_virtual_manifest_one_project() {
         .with_stderr(
             "\
 [COMPILING] bar v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -4856,7 +4844,7 @@ fn build_virtual_manifest_glob() {
         .with_stderr(
             "\
 [COMPILING] baz v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -4932,7 +4920,7 @@ fn build_all_virtual_manifest_implicit_examples() {
             "\
 [COMPILING] baz v0.1.0 ([..])
 [COMPILING] bar v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -4979,7 +4967,7 @@ fn build_all_member_dependency_same_name() {
              [DOWNLOADED] a v0.1.0 ([..])\n\
              [COMPILING] a v0.1.0\n\
              [COMPILING] a v0.1.0 ([..])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]\n",
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
         )
         .run();
 }
@@ -5335,7 +5323,7 @@ fn deterministic_cfg_flags() {
 --cfg[..]default[..]--cfg[..]f_a[..]--cfg[..]f_b[..]\
 --cfg[..]f_c[..]--cfg[..]f_d[..] \
 --cfg cfg_a --cfg cfg_b --cfg cfg_c --cfg cfg_d --cfg cfg_e`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]",
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]",
         )
         .run();
 }
@@ -5893,7 +5881,7 @@ fn default_cargo_config_jobs() {
     let p = project()
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
                 [build]
                 jobs = 1
@@ -5908,7 +5896,7 @@ fn good_cargo_config_jobs() {
     let p = project()
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
                 [build]
                 jobs = 4
@@ -5937,7 +5925,7 @@ fn invalid_cargo_config_jobs() {
     let p = project()
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
                 [build]
                 jobs = 0
@@ -6288,7 +6276,7 @@ fn build_lib_only() {
         -C metadata=[..] \
         --out-dir [..] \
         -L dependency=[CWD]/target/debug/deps`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]",
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]",
         )
         .run();
 }

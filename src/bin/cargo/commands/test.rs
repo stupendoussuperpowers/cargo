@@ -37,7 +37,7 @@ pub fn cli() -> Command {
             "Exclude packages from the test",
         )
         .arg_targets_all(
-            "Test only this package's library unit tests",
+            "Test only this package's library",
             "Test only the specified binary",
             "Test all binaries",
             "Test only the specified example",
@@ -64,18 +64,14 @@ pub fn cli() -> Command {
         ))
 }
 
-pub fn exec(config: &mut Config, args: &ArgMatches) -> CliResult {
-    let ws = args.workspace(config)?;
+pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
+    let ws = args.workspace(gctx)?;
 
-    let mut compile_opts = args.compile_options(
-        config,
-        CompileMode::Test,
-        Some(&ws),
-        ProfileChecking::Custom,
-    )?;
+    let mut compile_opts =
+        args.compile_options(gctx, CompileMode::Test, Some(&ws), ProfileChecking::Custom)?;
 
     compile_opts.build_config.requested_profile =
-        args.get_profile_name(config, "test", ProfileChecking::Custom)?;
+        args.get_profile_name(gctx, "test", ProfileChecking::Custom)?;
 
     // `TESTNAME` is actually an argument of the test binary, but it's
     // important, so we explicitly mention it and reconfigure.

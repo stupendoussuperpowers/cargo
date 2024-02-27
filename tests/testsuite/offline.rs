@@ -141,7 +141,7 @@ fn cargo_compile_with_downloaded_dependency_with_offline() {
             "\
 [CHECKING] present_dep v1.2.3
 [CHECKING] bar v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]",
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]",
         )
         .run();
 }
@@ -181,7 +181,7 @@ retry without the offline flag.
         .run();
 
     // While we're here, also check the config works.
-    p.change_file(".cargo/config", "net.offline = true");
+    p.change_file(".cargo/config.toml", "net.offline = true");
     p.cargo("check").with_status(101).with_stderr(msg).run();
 }
 
@@ -247,7 +247,7 @@ fn main(){
             "\
 [COMPILING] present_dep v1.2.3
 [COMPILING] foo v0.1.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
      Running `[..]`",
         )
         .with_stdout("1.2.3")
@@ -433,9 +433,10 @@ fn compile_offline_with_cached_git_dep(shallow: bool) {
     let maybe_use_shallow = |mut cargo: Execs| -> Execs {
         if shallow {
             cargo
-                .arg("-Zgitoxide=fetch,shallow-deps")
+                .arg("-Zgitoxide=fetch")
+                .arg("-Zgit=shallow-deps")
                 .masquerade_as_nightly_cargo(&[
-                    "unstable features must be available for -Z gitoxide",
+                    "unstable features must be available for -Z gitoxide and -Z git",
                 ]);
         }
         cargo
@@ -488,7 +489,7 @@ fn compile_offline_with_cached_git_dep(shallow: bool) {
         "\
 [COMPILING] dep1 v0.5.0 ({}#[..])
 [COMPILING] foo v0.5.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]",
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]",
         path2url(git_root),
     ));
     maybe_use_shallow(cargo).run();
@@ -665,7 +666,7 @@ fn main(){
             "\
 [COMPILING] present_dep v1.2.9
 [COMPILING] foo v0.1.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -687,7 +688,7 @@ fn main(){
             "\
 [COMPILING] present_dep v1.2.3
 [COMPILING] foo v0.1.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();

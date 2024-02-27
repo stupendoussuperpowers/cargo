@@ -255,7 +255,7 @@ fn custom_build_env_var_rustflags() {
     let rustflags_alt = "--cfg=notspecial";
     let p = project()
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 r#"
                 [build]
@@ -300,7 +300,7 @@ fn custom_build_env_var_encoded_rustflags() {
     // thing either way.
     let p = project()
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
             [build]
             rustflags = ["-Clink-arg=-B nope", "--cfg=foo"]
@@ -426,7 +426,7 @@ fn custom_build_env_var_rustc_linker() {
     let target = cross_compile::alternate();
     let p = project()
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 r#"
                 [target.{}]
@@ -466,7 +466,7 @@ fn custom_build_env_var_rustc_linker_with_target_cfg() {
     let target = cross_compile::alternate();
     let p = project()
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
             [target.'cfg(target_pointer_width = "32")']
             linker = "/path/to/linker"
@@ -495,7 +495,7 @@ fn custom_build_env_var_rustc_linker_bad_host_target() {
     let target = rustc_host();
     let p = project()
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 r#"
                 [target.{}]
@@ -526,7 +526,7 @@ fn custom_build_env_var_rustc_linker_host_target() {
     let target = rustc_host();
     let p = project()
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 r#"
                 target-applies-to-host = false
@@ -562,7 +562,7 @@ fn custom_build_env_var_rustc_linker_host_target_env() {
     let target = rustc_host();
     let p = project()
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 r#"
                 [target.{}]
@@ -598,7 +598,7 @@ fn custom_build_invalid_host_config_feature_flag() {
     let target = rustc_host();
     let p = project()
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 r#"
                 [target.{}]
@@ -629,7 +629,7 @@ fn custom_build_linker_host_target_with_bad_host_config() {
     let target = rustc_host();
     let p = project()
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 r#"
                 [host]
@@ -664,7 +664,7 @@ fn custom_build_linker_bad_host() {
     let target = rustc_host();
     let p = project()
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 r#"
                 [host]
@@ -699,7 +699,7 @@ fn custom_build_linker_bad_host_with_arch() {
     let target = rustc_host();
     let p = project()
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 r#"
                 [host]
@@ -737,7 +737,7 @@ fn custom_build_env_var_rustc_linker_cross_arch_host() {
     let cross_target = cross_compile::alternate();
     let p = project()
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 r#"
                 [host.{}]
@@ -775,7 +775,7 @@ fn custom_build_linker_bad_cross_arch_host() {
     let cross_target = cross_compile::alternate();
     let p = project()
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 r#"
                 [host]
@@ -890,7 +890,7 @@ fn custom_build_script_rustc_flags() {
     -L dependency=[CWD]/target/debug/deps \
     --extern foo=[..]libfoo-[..] \
     -L /dummy/path1 -L /dummy/path2`
-[FINISHED] dev [..]
+[FINISHED] `dev` profile [..]
 ",
         )
         .run();
@@ -949,7 +949,7 @@ fn custom_build_script_rustc_flags_no_space() {
     -L dependency=[CWD]/target/debug/deps \
     --extern foo=[..]libfoo-[..] \
     -L /dummy/path1 -L /dummy/path2`
-[FINISHED] dev [..]
+[FINISHED] `dev` profile [..]
 ",
         )
         .run();
@@ -1186,7 +1186,7 @@ fn overrides_and_links() {
             "#,
         )
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 r#"
                     [target.{}.foo]
@@ -1221,7 +1221,7 @@ fn overrides_and_links() {
 [..]
 [..]
 [RUNNING] `rustc --crate-name foo [..] -L foo -L bar`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1245,7 +1245,7 @@ fn unused_overrides() {
         .file("src/lib.rs", "")
         .file("build.rs", "fn main() {}")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 r#"
                     [target.{}.foo]
@@ -1348,7 +1348,7 @@ fn only_rerun_build_script() {
 [COMPILING] foo v0.5.0 ([CWD])
 [RUNNING] `[..]/build-script-build`
 [RUNNING] `rustc --crate-name foo [..]`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1456,7 +1456,7 @@ fn testing_and_such() {
 [RUNNING] `[..]/build-script-build`
 [RUNNING] `rustc --crate-name foo [..]`
 [RUNNING] `rustc --crate-name foo [..]`
-[FINISHED] test [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `test` profile [unoptimized + debuginfo] target(s) in [..]
 [RUNNING] `[..]/foo-[..][EXE]`
 [DOCTEST] foo
 [RUNNING] `rustdoc [..]--test [..]`",
@@ -1470,7 +1470,7 @@ fn testing_and_such() {
             "\
 [DOCUMENTING] foo v0.5.0 ([CWD])
 [RUNNING] `rustdoc [..]`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 [GENERATED] [CWD]/target/doc/foo/index.html
 ",
         )
@@ -1482,7 +1482,7 @@ fn testing_and_such() {
         .with_stderr(
             "\
 [COMPILING] foo v0.5.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 [RUNNING] `target/debug/foo[EXE]`
 ",
         )
@@ -1538,7 +1538,7 @@ fn propagation_of_l_flags() {
         .file("b/src/lib.rs", "")
         .file("b/build.rs", "bad file")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 r#"
                     [target.{}.foo]
@@ -1613,7 +1613,7 @@ fn propagation_of_l_flags_new() {
         .file("b/src/lib.rs", "")
         .file("b/build.rs", "bad file")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 r#"
                     [target.{}.foo]
@@ -1672,7 +1672,7 @@ fn build_deps_simple() {
 [RUNNING] `rustc [..] build.rs [..] --extern a=[..]`
 [RUNNING] `[..]/foo-[..]/build-script-build`
 [RUNNING] `rustc --crate-name foo [..]`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1797,7 +1797,7 @@ fn build_cmd_with_a_build_cmd() {
     -C metadata=[..] \
     --out-dir [..] \
     -L [..]target/debug/deps`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -2012,7 +2012,7 @@ fn code_generation() {
         .with_stderr(
             "\
 [COMPILING] foo v0.5.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 [RUNNING] `target/debug/foo[EXE]`",
         )
         .with_stdout("Hello, World!")
@@ -2511,7 +2511,7 @@ fn cfg_override() {
         .file("src/main.rs", "#[cfg(foo)] fn main() {}")
         .file("build.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 r#"
                     [target.{}.a]
@@ -2575,7 +2575,7 @@ fn cfg_test() {
 [RUNNING] [..] --cfg foo[..]
 [RUNNING] [..] --cfg foo[..]
 [RUNNING] [..] --cfg foo[..]
-[FINISHED] test [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `test` profile [unoptimized + debuginfo] target(s) in [..]
 [RUNNING] `[..]/foo-[..][EXE]`
 [RUNNING] `[..]/test-[..][EXE]`
 [DOCTEST] foo
@@ -2646,7 +2646,7 @@ fn cfg_override_test() {
         )
         .file("build.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 r#"
                     [target.{}.a]
@@ -2686,7 +2686,7 @@ fn cfg_override_test() {
 [RUNNING] `[..]`
 [RUNNING] `[..]`
 [RUNNING] `[..]`
-[FINISHED] test [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `test` profile [unoptimized + debuginfo] target(s) in [..]
 [RUNNING] `[..]/foo-[..][EXE]`
 [RUNNING] `[..]/test-[..][EXE]`
 [DOCTEST] foo
@@ -2716,7 +2716,7 @@ fn cfg_override_doc() {
             "#,
         )
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 r#"
                     [target.{target}.a]
@@ -2822,7 +2822,7 @@ fn env_test() {
 [RUNNING] [..] --crate-name foo[..]
 [RUNNING] [..] --crate-name foo[..]
 [RUNNING] [..] --crate-name test[..]
-[FINISHED] test [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `test` profile [unoptimized + debuginfo] target(s) in [..]
 [RUNNING] `[..]/foo-[..][EXE]`
 [RUNNING] `[..]/test-[..][EXE]`
 [DOCTEST] foo
@@ -2923,7 +2923,7 @@ fn flags_go_into_tests() {
 [COMPILING] foo v0.5.0 ([..]
 [RUNNING] `rustc [..] src/lib.rs [..] -L test[..]`
 [RUNNING] `rustc [..] tests/foo.rs [..] -L test[..]`
-[FINISHED] test [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `test` profile [unoptimized + debuginfo] target(s) in [..]
 [RUNNING] `[..]/foo-[..][EXE]`",
         )
         .with_stdout_contains("running 0 tests")
@@ -2935,7 +2935,7 @@ fn flags_go_into_tests() {
 [FRESH] a v0.5.0 ([..]
 [COMPILING] b v0.5.0 ([..]
 [RUNNING] `rustc [..] b/src/lib.rs [..] -L test[..]`
-[FINISHED] test [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `test` profile [unoptimized + debuginfo] target(s) in [..]
 [RUNNING] `[..]/b-[..][EXE]`",
         )
         .with_stdout_contains("running 0 tests")
@@ -3019,7 +3019,7 @@ fn diamond_passes_args_only_once() {
 [RUNNING] `rustc [..]`
 [COMPILING] foo v0.5.0 ([..]
 [RUNNING] `[..]rmeta -L native=test`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -3041,7 +3041,7 @@ fn adding_an_override_invalidates() {
             "#,
         )
         .file("src/lib.rs", "")
-        .file(".cargo/config", "")
+        .file(".cargo/config.toml", "")
         .file(
             "build.rs",
             r#"
@@ -3059,13 +3059,13 @@ fn adding_an_override_invalidates() {
 [RUNNING] `rustc [..]`
 [RUNNING] `[..]`
 [RUNNING] `rustc [..] -L native=foo`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
 
     p.change_file(
-        ".cargo/config",
+        ".cargo/config.toml",
         &format!(
             "
                 [target.{}.foo]
@@ -3080,7 +3080,7 @@ fn adding_an_override_invalidates() {
             "\
 [COMPILING] foo v0.5.0 ([..]
 [RUNNING] `rustc [..] -L native=bar`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -3103,7 +3103,7 @@ fn changing_an_override_invalidates() {
         )
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 "
             [target.{}.foo]
@@ -3120,13 +3120,13 @@ fn changing_an_override_invalidates() {
             "\
 [COMPILING] foo v0.5.0 ([..]
 [RUNNING] `rustc [..] -L native=foo`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
 
     p.change_file(
-        ".cargo/config",
+        ".cargo/config.toml",
         &format!(
             "
                 [target.{}.foo]
@@ -3142,7 +3142,7 @@ fn changing_an_override_invalidates() {
 [DIRTY] foo v0.5.0 ([..]): the precalculated components changed
 [COMPILING] foo v0.5.0 ([..]
 [RUNNING] `rustc [..] -L native=bar`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -3166,7 +3166,7 @@ fn fresh_builds_possible_with_link_libs() {
         )
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 "
             [target.{}.nativefoo]
@@ -3185,7 +3185,7 @@ fn fresh_builds_possible_with_link_libs() {
             "\
 [COMPILING] foo v0.5.0 ([..]
 [RUNNING] `rustc [..]`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -3194,7 +3194,7 @@ fn fresh_builds_possible_with_link_libs() {
         .with_stderr(
             "\
 [FRESH] foo v0.5.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -3218,7 +3218,7 @@ fn fresh_builds_possible_with_multiple_metadata_overrides() {
         )
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 "
             [target.{}.foo]
@@ -3239,7 +3239,7 @@ fn fresh_builds_possible_with_multiple_metadata_overrides() {
             "\
 [COMPILING] foo v0.5.0 ([..]
 [RUNNING] `rustc [..]`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -3248,7 +3248,7 @@ fn fresh_builds_possible_with_multiple_metadata_overrides() {
         .with_stderr(
             "\
 [FRESH] foo v0.5.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -3433,7 +3433,7 @@ fn rebuild_only_on_explicit_paths() {
 [COMPILING] foo v0.5.0 ([..])
 [RUNNING] `[..]/build-script-build`
 [RUNNING] `rustc [..] src/lib.rs [..]`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -3452,7 +3452,7 @@ fn rebuild_only_on_explicit_paths() {
 [COMPILING] foo v0.5.0 ([..])
 [RUNNING] `[..]/build-script-build`
 [RUNNING] `rustc [..] src/lib.rs [..]`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -3462,7 +3462,7 @@ fn rebuild_only_on_explicit_paths() {
         .with_stderr(
             "\
 [FRESH] foo v0.5.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -3476,7 +3476,7 @@ fn rebuild_only_on_explicit_paths() {
         .with_stderr(
             "\
 [FRESH] foo v0.5.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -3491,7 +3491,7 @@ fn rebuild_only_on_explicit_paths() {
 [COMPILING] foo v0.5.0 ([..])
 [RUNNING] `[..]/build-script-build`
 [RUNNING] `rustc [..] src/lib.rs [..]`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -3506,7 +3506,7 @@ fn rebuild_only_on_explicit_paths() {
 [COMPILING] foo v0.5.0 ([..])
 [RUNNING] `[..]/build-script-build`
 [RUNNING] `rustc [..] src/lib.rs [..]`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -3662,7 +3662,7 @@ fn custom_target_dir() {
         )
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"
                 [build]
                 target-dir = 'test'
@@ -3781,7 +3781,7 @@ fn warnings_emitted() {
 warning: foo@0.5.0: foo
 warning: foo@0.5.0: bar
 [RUNNING] `rustc [..]`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -3873,7 +3873,7 @@ fn warnings_hidden_for_upstream() {
 [RUNNING] `rustc [..]`
 [COMPILING] foo v0.5.0 ([..])
 [RUNNING] `rustc [..]`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -3934,7 +3934,7 @@ warning: bar@0.1.0: bar
 [RUNNING] `[..] rustc [..]`
 [COMPILING] foo v0.5.0 ([..])
 [RUNNING] `[..] rustc [..]`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -3976,7 +3976,7 @@ fn output_shows_on_vv() {
 [RUNNING] `[..]`
 [foo 0.5.0] stderr
 [RUNNING] `[..] rustc [..]`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -4008,7 +4008,7 @@ fn links_with_dots() {
             "#,
         )
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 r#"
                     [target.{}.'a.b']
@@ -4647,7 +4647,7 @@ fn optional_build_dep_and_required_normal_dep() {
             "\
 [COMPILING] bar v0.5.0 ([..])
 [COMPILING] foo v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 [RUNNING] `[..]foo[EXE]`",
         )
         .run();
@@ -4658,7 +4658,7 @@ fn optional_build_dep_and_required_normal_dep() {
             "\
 [COMPILING] bar v0.5.0 ([..])
 [COMPILING] foo v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 [RUNNING] `[..]foo[EXE]`",
         )
         .run();
@@ -4975,7 +4975,7 @@ fn rerun_if_published_directory() {
             "\
 [FRESH] mylib-sys v1.0.0
 [FRESH] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();

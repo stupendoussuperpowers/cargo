@@ -114,7 +114,7 @@ fn basic() {
         // There have been multiple bugs where every build triggers and update.
         .with_stderr(
             "[COMPILING] foo v0.0.1 [..]\n\
-             [FINISHED] dev [..]",
+             [FINISHED] `dev` profile [..]",
         )
         .run();
     p.cargo("run").build_std().target_host().run();
@@ -155,7 +155,7 @@ fn cross_custom() {
             r#"
             {
                 "llvm-target": "x86_64-unknown-none-gnu",
-                "data-layout": "e-m:e-i64:64-f80:128-n8:16:32:64-S128",
+                "data-layout": "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
                 "arch": "x86_64",
                 "target-endian": "little",
                 "target-pointer-width": "64",
@@ -196,7 +196,7 @@ fn custom_test_framework() {
             r#"
             {
                 "llvm-target": "x86_64-unknown-none-gnu",
-                "data-layout": "e-m:e-i64:64-f80:128-n8:16:32:64-S128",
+                "data-layout": "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
                 "arch": "x86_64",
                 "target-endian": "little",
                 "target-pointer-width": "64",
@@ -262,7 +262,7 @@ fn remap_path_scope() {
         .with_status(101)
         .with_stderr_contains(
             "\
-[FINISHED] release [optimized + debuginfo] [..]
+[FINISHED] `release` profile [optimized + debuginfo] [..]
 [RUNNING] [..]
 [..]thread '[..]' panicked at [..]src/main.rs:3:[..]",
         )

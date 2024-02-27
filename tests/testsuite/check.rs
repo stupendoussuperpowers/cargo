@@ -3,6 +3,7 @@
 use std::fmt::{self, Write};
 
 use crate::messages::raw_rustc_output;
+use cargo_test_support::compare;
 use cargo_test_support::install::exe;
 use cargo_test_support::paths::CargoPathExt;
 use cargo_test_support::registry::Package;
@@ -301,7 +302,7 @@ fn dylib_check_preserves_build_cache() {
         .with_stderr(
             "\
 [..]Compiling foo v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -309,7 +310,7 @@ fn dylib_check_preserves_build_cache() {
     p.cargo("check").run();
 
     p.cargo("build")
-        .with_stderr("[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]")
+        .with_stderr("[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]")
         .run();
 }
 
@@ -437,7 +438,7 @@ fn check_all_exclude() {
         .with_stderr(
             "\
 [CHECKING] bar v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -464,7 +465,7 @@ fn check_all_exclude_glob() {
         .with_stderr(
             "\
 [CHECKING] bar v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -513,7 +514,7 @@ fn check_virtual_manifest_one_project() {
         .with_stderr(
             "\
 [CHECKING] bar v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -540,7 +541,7 @@ fn check_virtual_manifest_glob() {
         .with_stderr(
             "\
 [CHECKING] baz v0.1.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -555,7 +556,7 @@ fn exclude_warns_on_non_existing_package() {
             "\
 [WARNING] excluded package(s) `bar` not found in workspace `[CWD]`
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1048,7 +1049,7 @@ fn warn_manifest_package_and_project() {
             "\
 [WARNING] manifest at `[CWD]` contains both `project` and `package`, this could become a hard error in the future
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1099,7 +1100,7 @@ fn git_manifest_package_and_project() {
 [UPDATING] git repository `[..]`
 [CHECKING] bar v0.0.1 ([..])
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1124,7 +1125,7 @@ fn warn_manifest_with_project() {
             "\
 [WARNING] manifest at `[CWD]` contains `[project]` instead of `[package]`, this could become a hard error in the future
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1171,7 +1172,7 @@ fn git_manifest_with_project() {
 [UPDATING] git repository `[..]`
 [CHECKING] bar v0.0.1 ([..])
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1491,7 +1492,7 @@ fn check_unused_manifest_keys() {
 [CHECKING] [..]
 [CHECKING] [..]
 [CHECKING] bar v0.2.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1514,8 +1515,48 @@ fn versionless_package() {
         .with_stderr(
             "\
 [CHECKING] foo v0.0.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn pkgid_querystring_works() {
+    let git_project = git::new("gitdep", |p| {
+        p.file("Cargo.toml", &basic_manifest("gitdep", "1.0.0"))
+            .file("src/lib.rs", "")
+    });
+    let p = project()
+        .file(
+            "Cargo.toml",
+            &format!(
+                r#"
+                [package]
+                name = "foo"
+
+                [dependencies]
+                gitdep = {{ git = "{}", branch = "master" }}
+                "#,
+                git_project.url()
+            ),
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("generate-lockfile").run();
+
+    let output = p.cargo("pkgid").arg("gitdep").exec_with_output().unwrap();
+    let gitdep_pkgid = String::from_utf8(output.stdout).unwrap();
+    let gitdep_pkgid = gitdep_pkgid.trim();
+    compare::assert_match_exact("git+file://[..]/gitdep?branch=master#1.0.0", &gitdep_pkgid);
+
+    p.cargo("build -p")
+        .arg(gitdep_pkgid)
+        .with_stderr(
+            "\
+[COMPILING] gitdep v1.0.0 (file:///[..]/gitdep?branch=master#[..])
+[FINISHED] `dev` profile [..]",
         )
         .run();
 }

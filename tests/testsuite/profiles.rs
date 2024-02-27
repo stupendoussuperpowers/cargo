@@ -36,7 +36,7 @@ fn profile_overrides() {
         -C rpath \
         --out-dir [..] \
         -L dependency=[CWD]/target/debug/deps`
-[FINISHED] dev [optimized] target(s) in [..]
+[FINISHED] `dev` profile [optimized] target(s) in [..]
 ",
         )
         .run();
@@ -226,7 +226,7 @@ fn top_level_overrides_deps() {
         --extern foo=[CWD]/target/release/deps/\
                      {prefix}foo[..]{suffix} \
         --extern foo=[CWD]/target/release/deps/libfoo.rlib`
-[FINISHED] release [optimized + debuginfo] target(s) in [..]
+[FINISHED] `release` profile [optimized + debuginfo] target(s) in [..]
 ",
             prefix = env::consts::DLL_PREFIX,
             suffix = env::consts::DLL_SUFFIX
@@ -278,7 +278,7 @@ package:   [..]
 workspace: [..]
 [COMPILING] bar v0.1.0 ([..])
 [RUNNING] `rustc [..]`
-[FINISHED] dev [unoptimized] target(s) in [..]",
+[FINISHED] `dev` profile [unoptimized] target(s) in [..]",
         )
         .run();
 }
@@ -317,7 +317,7 @@ fn profile_in_virtual_manifest_works() {
             "\
 [COMPILING] bar v0.1.0 ([..])
 [RUNNING] `rustc [..]`
-[FINISHED] dev [optimized] target(s) in [..]",
+[FINISHED] `dev` profile [optimized] target(s) in [..]",
         )
         .run();
 }
@@ -468,7 +468,7 @@ fn debug_0_report() {
             "\
 [COMPILING] foo v0.1.0 [..]
 [RUNNING] `rustc --crate-name foo src/lib.rs [..]
-[FINISHED] dev [unoptimized] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized] target(s) in [..]
 ",
         )
         .with_stderr_does_not_contain("-C debuginfo")
@@ -607,7 +607,82 @@ fn strip_accepts_false_to_disable_strip() {
         .build();
 
     p.cargo("build --release -v")
-        .with_stderr_does_not_contain("-C strip")
+        .with_stderr_does_not_contain("[RUNNING] `rustc [..] -C strip[..]`")
+        .run();
+}
+
+#[cargo_test]
+fn strip_debuginfo_in_release() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.1.0"
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("build --release -v")
+        .with_stderr_contains("[RUNNING] `rustc [..] -C strip=debuginfo[..]`")
+        .run();
+}
+
+#[cargo_test]
+fn strip_debuginfo_without_debug() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.1.0"
+                
+                [profile.dev]
+                debug = 0
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("build -v")
+        .with_stderr_contains("[RUNNING] `rustc [..] -C strip=debuginfo[..]`")
+        .run();
+}
+
+#[cargo_test]
+fn do_not_strip_debuginfo_with_requested_debug() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.1.0"
+
+                [dependencies]
+                bar = { path = "bar" }
+
+                [profile.release.package.bar]
+                debug = 1
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .file(
+            "bar/Cargo.toml",
+            r#"
+                [package]
+                name = "bar"
+                version = "0.1.0"
+        "#,
+        )
+        .file("bar/src/lib.rs", "")
+        .build();
+
+    p.cargo("build --release -v")
+        .with_stderr_does_not_contain("[RUNNING] `rustc [..] -C strip=debuginfo[..]`")
         .run();
 }
 

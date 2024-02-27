@@ -63,7 +63,7 @@ fn cargo_compile_simple_git_dep() {
             "[UPDATING] git repository `{}`\n\
              [COMPILING] dep1 v0.5.0 ({}#[..])\n\
              [COMPILING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]\n",
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
             path2url(&git_root),
             path2url(&git_root),
         ))
@@ -133,7 +133,7 @@ fn cargo_compile_git_dep_branch() {
             "[UPDATING] git repository `{}`\n\
              [COMPILING] dep1 v0.5.0 ({}?branch=branchy#[..])\n\
              [COMPILING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]\n",
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
             path2url(&git_root),
             path2url(&git_root),
         ))
@@ -208,7 +208,7 @@ fn cargo_compile_git_dep_tag() {
             "[UPDATING] git repository `{}`\n\
              [COMPILING] dep1 v0.5.0 ({}?tag=v0.1.0#[..])\n\
              [COMPILING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]\n",
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
             path2url(&git_root),
             path2url(&git_root),
         ))
@@ -277,7 +277,7 @@ fn cargo_compile_git_dep_pull_request() {
             "[UPDATING] git repository `{}`\n\
              [COMPILING] dep1 v0.5.0 ({}?rev=refs/pull/330/head#[..])\n\
              [COMPILING] foo v0.0.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]\n",
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
             path2url(&git_root),
             path2url(&git_root),
         ))
@@ -583,7 +583,7 @@ fn recompilation() {
             "[UPDATING] git repository `{}`\n\
              [CHECKING] bar v0.5.0 ({}#[..])\n\
              [CHECKING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) \
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) \
              in [..]\n",
             git_project.url(),
             git_project.url(),
@@ -631,7 +631,7 @@ fn recompilation() {
         .with_stderr(&format!(
             "[CHECKING] bar v0.5.0 ({}#[..])\n\
              [CHECKING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) \
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) \
              in [..]\n",
             git_project.url(),
         ))
@@ -642,7 +642,7 @@ fn recompilation() {
     p.cargo("check")
         .with_stderr(
             "[CHECKING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) \
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) \
              in [..]",
         )
         .run();
@@ -726,7 +726,7 @@ fn update_with_shared_deps() {
 [CHECKING] [..] v0.5.0 ([..])
 [CHECKING] [..] v0.5.0 ([..])
 [CHECKING] foo v0.5.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]\n",
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
             git = git_project.url(),
         ))
         .run();
@@ -757,13 +757,11 @@ fn update_with_shared_deps() {
         .with_status(101)
         .with_stderr(
             "\
+[UPDATING] git repository [..]
 [ERROR] Unable to update [..]
 
 Caused by:
-  precise value for git is not a git revision: 0.1.2
-
-Caused by:
-  unable to parse OID - contains invalid characters; class=Invalid (3)
+  revspec '0.1.2' not found; class=Reference (4); code=NotFound (-3)
 ",
         )
         .run();
@@ -796,7 +794,7 @@ Caused by:
 [CHECKING] [..] v0.5.0 ([CWD][..]dep[..])
 [CHECKING] [..] v0.5.0 ([CWD][..]dep[..])
 [CHECKING] foo v0.5.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]\n",
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
             git = git_project.url(),
         ))
         .run();
@@ -855,7 +853,7 @@ fn dep_with_submodule() {
 [UPDATING] git submodule `file://[..]/dep2`
 [CHECKING] dep1 [..]
 [CHECKING] foo [..]
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]\n",
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
         )
         .run();
 }
@@ -922,7 +920,7 @@ fn dep_with_relative_submodule() {
 [CHECKING] deployment [..]
 [CHECKING] base [..]
 [CHECKING] foo [..]
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]\n",
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
         )
         .run();
 }
@@ -1056,7 +1054,7 @@ fn dep_with_skipped_submodule() {
 [SKIPPING] git submodule `file://[..]/qux` [..]
 [CHECKING] bar [..]
 [CHECKING] foo [..]
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]\n",
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
         )
         .run();
 }
@@ -1117,7 +1115,7 @@ fn ambiguous_published_deps() {
         .with_stderr(
             "\
 [WARNING] skipping duplicate package `bar` found at `[..]`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 [RUNNING] `target/debug/foo[EXE]`
 ",
         )
@@ -1180,7 +1178,7 @@ fn two_deps_only_update_one() {
              [CHECKING] [..] v0.5.0 ([..])\n\
              [CHECKING] [..] v0.5.0 ([..])\n\
              [CHECKING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]\n",
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
         )
         .run();
 
@@ -1278,7 +1276,7 @@ fn stale_cached_version() {
 [UPDATING] git repository `{bar}`
 [COMPILING] bar v0.0.0 ({bar}#[..])
 [COMPILING] foo v0.0.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
             bar = bar.url(),
         ))
@@ -1336,7 +1334,7 @@ fn dep_with_changed_submodule() {
              [UPDATING] git submodule `file://[..]/dep2`\n\
              [COMPILING] dep1 v0.5.0 ([..])\n\
              [COMPILING] foo v0.5.0 ([..])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) in \
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in \
              [..]\n\
              [RUNNING] `target/debug/foo[EXE]`\n",
         )
@@ -1374,7 +1372,7 @@ fn dep_with_changed_submodule() {
     sleep_ms(1000);
     // Update the dependency and carry on!
     println!("update");
-    p.cargo("update -v")
+    p.cargo("update")
         .with_stderr("")
         .with_stderr(&format!(
             "[UPDATING] git repository `{}`\n\
@@ -1390,7 +1388,7 @@ fn dep_with_changed_submodule() {
         .with_stderr(
             "[COMPILING] dep1 v0.5.0 ([..])\n\
              [COMPILING] foo v0.5.0 ([..])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) in \
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in \
              [..]\n\
              [RUNNING] `target/debug/foo[EXE]`\n",
         )
@@ -1450,7 +1448,7 @@ fn dev_deps_with_testing() {
             "\
 [UPDATING] git repository `{bar}`
 [CHECKING] foo v0.5.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
             bar = p2.url()
         ))
@@ -1463,7 +1461,7 @@ fn dev_deps_with_testing() {
             "\
 [COMPILING] [..] v0.5.0 ([..])
 [COMPILING] [..] v0.5.0 ([..]
-[FINISHED] test [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `test` profile [unoptimized + debuginfo] target(s) in [..]
 [RUNNING] [..] (target/debug/deps/foo-[..][EXE])",
         )
         .with_stdout_contains("test tests::foo ... ok")
@@ -1496,7 +1494,7 @@ fn git_build_cmd_freshness() {
         .with_stderr(
             "\
 [COMPILING] foo v0.0.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1555,7 +1553,7 @@ fn git_name_not_always_needed() {
             "\
 [UPDATING] git repository `{bar}`
 [CHECKING] foo v0.5.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
             bar = p2.url()
         ))
@@ -1598,7 +1596,7 @@ fn git_repo_changing_no_rebuild() {
 [UPDATING] git repository `{bar}`
 [COMPILING] [..]
 [CHECKING] [..]
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
             bar = bar.url()
         ))
@@ -1635,7 +1633,7 @@ fn git_repo_changing_no_rebuild() {
 [UPDATING] git repository `{bar}`
 [CHECKING] [..]
 [CHECKING] [..]
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
             bar = bar.url()
         ))
@@ -1827,7 +1825,7 @@ fn warnings_in_git_dep() {
             "[UPDATING] git repository `{}`\n\
              [CHECKING] bar v0.5.0 ({}#[..])\n\
              [CHECKING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]\n",
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
             bar.url(),
             bar.url(),
         ))
@@ -2012,7 +2010,7 @@ fn switch_deps_does_not_update_transitive() {
 [CHECKING] transitive [..]
 [CHECKING] dep [..]
 [CHECKING] foo [..]
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
             dep1.url(),
             transitive.url()
@@ -2042,7 +2040,7 @@ fn switch_deps_does_not_update_transitive() {
 [UPDATING] git repository `{}`
 [CHECKING] dep [..]
 [CHECKING] foo [..]
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
             dep2.url()
         ))
@@ -2158,7 +2156,7 @@ fn switch_sources() {
 [CHECKING] a v0.5.0 ([..]a1#[..]
 [CHECKING] b v0.5.0 ([..])
 [CHECKING] foo v0.5.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -2185,7 +2183,7 @@ fn switch_sources() {
 [CHECKING] a v0.5.1 ([..]a2#[..]
 [CHECKING] b v0.5.0 ([..])
 [CHECKING] foo v0.5.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -2313,7 +2311,7 @@ fn lints_are_suppressed() {
 [UPDATING] git repository `[..]`
 [CHECKING] a v0.5.0 ([..])
 [CHECKING] foo v0.0.1 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -2356,7 +2354,7 @@ fn denied_lints_are_allowed() {
 [UPDATING] git repository `[..]`
 [CHECKING] a v0.5.0 ([..])
 [CHECKING] foo v0.0.1 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -2494,7 +2492,7 @@ fn include_overrides_gitignore() {
 [COMPILING] foo v0.5.0 ([..])
 [RUNNING] `[..]build-script-build[..]`
 [RUNNING] `rustc --crate-name foo src/lib.rs [..]`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -2573,6 +2571,12 @@ fn invalid_git_dependency_manifest() {
         .with_stderr(&format!(
             "\
 [UPDATING] git repository `{}`
+[ERROR] duplicate key `categories` in table `package`
+ --> [..]/Cargo.toml:8:21
+  |
+8 |                     categories = [\"algorithms\"]
+  |                     ^
+  |
 [ERROR] failed to get `dep1` as a dependency of package `foo v0.5.0 ([..])`
 
 Caused by:
@@ -2580,16 +2584,6 @@ Caused by:
 
 Caused by:
   Unable to update {}
-
-Caused by:
-  failed to parse manifest at `[..]`
-
-Caused by:
-  TOML parse error at line 8, column 21
-    |
-  8 |                     categories = [\"algorithms\"]
-    |                     ^
-  duplicate key `categories` in table `package`
 ",
             path2url(&git_root),
             path2url(&git_root),
@@ -2703,7 +2697,7 @@ fn use_the_cli() {
         )
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             "
                 [net]
                 git-fetch-with-cli = true
@@ -2805,7 +2799,7 @@ fn git_with_cli_force() {
         )
         .file("src/main.rs", "fn main() { dep1::f(); }")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             "
             [net]
             git-fetch-with-cli = true
@@ -2863,7 +2857,7 @@ fn git_fetch_cli_env_clean() {
             )
             .file("src/lib.rs", "pub extern crate dep1;")
             .file(
-                ".cargo/config",
+                ".cargo/config.toml",
                 "
                 [net]
                 git-fetch-with-cli = true
@@ -3040,7 +3034,7 @@ fn default_not_master() {
 [UPDATING] git repository `[..]`
 [CHECKING] dep1 v0.5.0 ([..])
 [CHECKING] foo v0.5.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]",
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]",
         )
         .run();
 }
@@ -3132,7 +3126,10 @@ fn historical_lockfile_works_with_vendor() {
         .build();
 
     let output = project.cargo("vendor").exec_with_output().unwrap();
-    project.change_file(".cargo/config", str::from_utf8(&output.stdout).unwrap());
+    project.change_file(
+        ".cargo/config.toml",
+        str::from_utf8(&output.stdout).unwrap(),
+    );
     project.change_file(
         "Cargo.lock",
         &format!(
@@ -3275,7 +3272,7 @@ fn metadata_master_consistency() {
                 {
                   "name": "bar",
                   "version": "1.0.0",
-                  "id": "bar 1.0.0 (__BAR_SOURCE__#__BAR_HASH__)",
+                  "id": "__BAR_SOURCE__#1.0.0",
                   "license": null,
                   "license_file": null,
                   "description": null,
@@ -3301,7 +3298,7 @@ fn metadata_master_consistency() {
                 {
                   "name": "foo",
                   "version": "0.1.0",
-                  "id": "foo 0.1.0 [..]",
+                  "id": "[..]foo#0.1.0",
                   "license": null,
                   "license_file": null,
                   "description": null,
@@ -3339,28 +3336,28 @@ fn metadata_master_consistency() {
                 }
               ],
               "workspace_members": [
-                "foo 0.1.0 [..]"
+                "[..]foo#0.1.0"
               ],
               "workspace_default_members": [
-                "foo 0.1.0 [..]"
+                "[..]foo#0.1.0"
               ],
               "resolve": {
                 "nodes": [
                   {
-                    "id": "bar 1.0.0 (__BAR_SOURCE__#__BAR_HASH__)",
+                    "id": "__BAR_SOURCE__#1.0.0",
                     "dependencies": [],
                     "deps": [],
                     "features": []
                   },
                   {
-                    "id": "foo 0.1.0 [..]",
+                    "id": "[..]foo#0.1.0",
                     "dependencies": [
-                      "bar 1.0.0 (__BAR_SOURCE__#__BAR_HASH__)"
+                      "__BAR_SOURCE__#1.0.0"
                     ],
                     "deps": [
                       {
                         "name": "bar",
-                        "pkg": "bar 1.0.0 (__BAR_SOURCE__#__BAR_HASH__)",
+                        "pkg": "__BAR_SOURCE__#1.0.0",
                         "dep_kinds": [
                           {
                             "kind": null,
@@ -3372,7 +3369,7 @@ fn metadata_master_consistency() {
                     "features": []
                   }
                 ],
-                "root": "foo 0.1.0 [..]"
+                "root": "[..]foo#0.1.0"
               },
               "target_directory": "[..]",
               "version": 1,
@@ -3680,7 +3677,7 @@ fn different_user_relative_submodules() {
 [UPDATING] git submodule `{}`
 [COMPILING] dep1 v0.5.0 ({}#[..])
 [COMPILING] foo v0.5.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
             path2url(&user1_git_project.root()),
             path2url(&user2_git_project.root()),

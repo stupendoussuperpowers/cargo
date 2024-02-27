@@ -377,7 +377,7 @@ error: the feature `unstable-options` is not in the list of allowed features: [p
         )
         .run();
 
-    // -Zallow-features overrides .cargo/config
+    // -Zallow-features overrides .cargo/config.toml
     p.cargo("-Zallow-features=test-dummy-unstable -Zprint-im-a-teapot check")
         .masquerade_as_nightly_cargo(&[
             "allow-features",
@@ -652,7 +652,7 @@ fn publish_allowed() {
 [PACKAGED] [..]
 [UPLOADING] a v0.0.1 [..]
 [UPLOADED] a v0.0.1 to registry `crates-io`
-note: Waiting for `a v0.0.1` to be available at registry `crates-io`.
+[NOTE] waiting for `a v0.0.1` to be available at registry `crates-io`.
 You may press ctrl-c to skip waiting; the crate should be available shortly.
 [PUBLISHED] a v0.0.1 at registry `crates-io`
 ",
@@ -679,14 +679,12 @@ fn wrong_position() {
         .with_status(101)
         .with_stderr(
             "\
-error: failed to parse manifest at [..]
-
-Caused by:
-  TOML parse error at line 5, column 34
-    |
-  5 |                 cargo-features = [\"test-dummy-unstable\"]
-    |                                  ^^^^^^^^^^^^^^^^^^^^^^^
-  the field `cargo-features` should be set at the top of Cargo.toml before any tables
+[ERROR] the field `cargo-features` should be set at the top of Cargo.toml before any tables
+ --> Cargo.toml:5:34
+  |
+5 |                 cargo-features = [\"test-dummy-unstable\"]
+  |                                  ^^^^^^^^^^^^^^^^^^^^^^^
+  |
 ",
         )
         .run();

@@ -158,9 +158,10 @@ tag = "…"            # tag name for the git repository
 rev = "…"            # revision for the git repository
 
 [target.<triple>]
-linker = "…"            # linker to use
-runner = "…"            # wrapper to run executables
-rustflags = ["…", "…"]  # custom flags for `rustc`
+linker = "…"              # linker to use
+runner = "…"              # wrapper to run executables
+rustflags = ["…", "…"]    # custom flags for `rustc`
+rustdocflags = ["…", "…"] # custom flags for `rustdoc`
 
 [target.<cfg>]
 runner = "…"            # wrapper to run executables
@@ -299,7 +300,11 @@ Cargo will search `PATH` for its executable.
 
 Configuration values with sensitive information are stored in the
 `$CARGO_HOME/credentials.toml` file. This file is automatically created and updated
-by [`cargo login`] and [`cargo logout`] when using the `cargo:token` credential provider.
+by [`cargo login`] and [`cargo logout`] when using the [`cargo:token`] credential provider.
+
+Tokens are used by some Cargo commands such as [`cargo publish`] for
+authenticating with remote registries. Care should be taken to protect the
+tokens and to keep them secret.
 
 It follows the same format as Cargo config files.
 
@@ -310,10 +315,6 @@ token = "…"   # Access token for crates.io
 [registries.<name>]
 token = "…"   # Access token for the named registry
 ```
-
-Tokens are used by some Cargo commands such as [`cargo publish`] for
-authenticating with remote registries. Care should be taken to protect the
-tokens and to keep them secret.
 
 As with most other config values, tokens may be specified with environment
 variables. The token for [crates.io] may be specified with the
@@ -500,14 +501,21 @@ appropriate profile setting.
 Extra command-line flags to pass to `rustdoc`. The value may be an array of
 strings or a space-separated string.
 
-There are three mutually exclusive sources of extra flags. They are checked in
+There are four mutually exclusive sources of extra flags. They are checked in
 order, with the first one being used:
 
 1. `CARGO_ENCODED_RUSTDOCFLAGS` environment variable.
 2. `RUSTDOCFLAGS` environment variable.
-3. `build.rustdocflags` config value.
+3. All matching `target.<triple>.rustdocflags` config entries joined together.
+4. `build.rustdocflags` config value.
 
 Additional flags may also be passed with the [`cargo rustdoc`] command.
+
+> **Caution**: Due to the low-level nature of passing flags directly to the
+> compiler, this may cause a conflict with future versions of Cargo which may
+> issue the same or similar flags on its own which may interfere with the
+> flags you specify. This is an area where Cargo may not always be backwards
+> compatible.
 
 #### `build.incremental`
 * Type: bool
@@ -1216,6 +1224,17 @@ This is similar to the [target rustflags](#targettriplerustflags), but
 using a [`cfg()` expression]. If several `<cfg>` and [`<triple>`] entries
 match the current target, the flags are joined together.
 
+#### `target.<triple>.rustdocflags`
+* Type: string or array of strings
+* Default: none
+* Environment: `CARGO_TARGET_<triple>_RUSTDOCFLAGS`
+
+Passes a set of custom flags to the compiler for this [`<triple>`].
+The value may be an array of strings or a space-separated string.
+
+See [`build.rustdocflags`](#buildrustdocflags) for more details on the different
+ways to specific extra flags.
+
 #### `target.<triple>.<links>`
 
 The links sub-table provides a way to [override a build script]. When
@@ -1320,6 +1339,7 @@ Sets the width for progress bar.
 [source replacement]: source-replacement.md
 [revision]: https://git-scm.com/docs/gitrevisions
 [registries]: registries.md
+[`cargo:token`]: registry-authentication.md#cargotoken
 [crates.io]: https://crates.io/
 [target triple]: ../appendix/glossary.md#target '"target" (glossary)'
 [`<triple>`]: ../appendix/glossary.md#target '"target" (glossary)'

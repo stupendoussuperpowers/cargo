@@ -73,7 +73,7 @@ fn cargo_compile_with_nested_deps_shorthand() {
             "[COMPILING] baz v0.5.0 ([CWD]/bar/baz)\n\
              [COMPILING] bar v0.5.0 ([CWD]/bar)\n\
              [COMPILING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) \
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) \
              in [..]\n",
         )
         .run();
@@ -93,7 +93,7 @@ fn cargo_compile_with_nested_deps_shorthand() {
     p.cargo("build -p baz")
         .with_stderr(
             "[COMPILING] baz v0.5.0 ([CWD]/bar/baz)\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) \
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) \
              in [..]\n",
         )
         .run();
@@ -102,7 +102,7 @@ fn cargo_compile_with_nested_deps_shorthand() {
         .with_stderr(
             "[COMPILING] bar v0.5.0 ([CWD]/bar)\n\
              [COMPILING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) \
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) \
              in [..]\n",
         )
         .run();
@@ -191,7 +191,7 @@ fn cargo_compile_with_root_dev_deps_with_testing() {
             "\
 [COMPILING] [..] v0.5.0 ([..])
 [COMPILING] [..] v0.5.0 ([..])
-[FINISHED] test [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `test` profile [unoptimized + debuginfo] target(s) in [..]
 [RUNNING] [..] (target/debug/deps/foo-[..][EXE])",
         )
         .with_stdout_contains("running 0 tests")
@@ -249,7 +249,7 @@ fn cargo_compile_with_transitive_dev_deps() {
         .with_stderr(
             "[COMPILING] bar v0.5.0 ([CWD]/bar)\n\
              [COMPILING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) in \
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in \
              [..]\n",
         )
         .run();
@@ -284,7 +284,7 @@ fn no_rebuild_dependency() {
         .with_stderr(
             "[CHECKING] bar v0.5.0 ([CWD]/bar)\n\
              [CHECKING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) \
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) \
              in [..]\n",
         )
         .run();
@@ -301,7 +301,7 @@ fn no_rebuild_dependency() {
     p.cargo("check")
         .with_stderr(
             "[CHECKING] foo v0.5.0 ([..])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) \
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) \
              in [..]\n",
         )
         .run();
@@ -351,7 +351,7 @@ fn deep_dependencies_trigger_rebuild() {
             "[CHECKING] baz v0.5.0 ([CWD]/baz)\n\
              [CHECKING] bar v0.5.0 ([CWD]/bar)\n\
              [CHECKING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) \
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) \
              in [..]\n",
         )
         .run();
@@ -369,7 +369,7 @@ fn deep_dependencies_trigger_rebuild() {
             "[CHECKING] baz v0.5.0 ([CWD]/baz)\n\
              [CHECKING] bar v0.5.0 ([CWD]/bar)\n\
              [CHECKING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) \
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) \
              in [..]\n",
         )
         .run();
@@ -388,7 +388,7 @@ fn deep_dependencies_trigger_rebuild() {
         .with_stderr(
             "[CHECKING] bar v0.5.0 ([CWD]/bar)\n\
              [CHECKING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) \
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) \
              in [..]\n",
         )
         .run();
@@ -437,7 +437,7 @@ fn no_rebuild_two_deps() {
             "[COMPILING] baz v0.5.0 ([CWD]/baz)\n\
              [COMPILING] bar v0.5.0 ([CWD]/bar)\n\
              [COMPILING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) \
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) \
              in [..]\n",
         )
         .run();
@@ -473,7 +473,7 @@ fn nested_deps_recompile() {
         .with_stderr(
             "[CHECKING] bar v0.5.0 ([CWD]/src/bar)\n\
              [CHECKING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) \
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) \
              in [..]\n",
         )
         .run();
@@ -485,7 +485,7 @@ fn nested_deps_recompile() {
     p.cargo("check")
         .with_stderr(
             "[CHECKING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) \
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) \
              in [..]\n",
         )
         .run();
@@ -543,7 +543,11 @@ fn override_relative() {
         .build();
 
     fs::create_dir(&paths::root().join(".cargo")).unwrap();
-    fs::write(&paths::root().join(".cargo/config"), r#"paths = ["bar"]"#).unwrap();
+    fs::write(
+        &paths::root().join(".cargo/config.toml"),
+        r#"paths = ["bar"]"#,
+    )
+    .unwrap();
 
     let p = project()
         .file(
@@ -578,7 +582,10 @@ fn override_self() {
     let p = project();
     let root = p.root();
     let p = p
-        .file(".cargo/config", &format!("paths = ['{}']", root.display()))
+        .file(
+            ".cargo/config.toml",
+            &format!("paths = ['{}']", root.display()),
+        )
         .file(
             "Cargo.toml",
             &format!(
@@ -626,7 +633,7 @@ fn override_path_dep() {
 
     let p = project()
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             &format!(
                 "paths = ['{}', '{}']",
                 bar.root().join("p1").display(),
@@ -707,7 +714,7 @@ fn path_dep_build_cmd() {
         .with_stderr(
             "[COMPILING] bar v0.5.0 ([CWD]/bar)\n\
              [COMPILING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) in \
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in \
              [..]\n",
         )
         .run();
@@ -723,7 +730,7 @@ fn path_dep_build_cmd() {
         .with_stderr(
             "[COMPILING] bar v0.5.0 ([CWD]/bar)\n\
              [COMPILING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) in \
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in \
              [..]\n",
         )
         .run();
@@ -764,7 +771,7 @@ fn dev_deps_no_rebuild_lib() {
         .env("FOO", "bar")
         .with_stderr(
             "[COMPILING] foo v0.5.0 ([CWD])\n\
-             [FINISHED] dev [unoptimized + debuginfo] target(s) \
+             [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) \
              in [..]\n",
         )
         .run();
@@ -774,7 +781,7 @@ fn dev_deps_no_rebuild_lib() {
             "\
 [COMPILING] [..] v0.5.0 ([CWD][..])
 [COMPILING] [..] v0.5.0 ([CWD][..])
-[FINISHED] test [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `test` profile [unoptimized + debuginfo] target(s) in [..]
 [RUNNING] [..] (target/debug/deps/foo-[..][EXE])",
         )
         .with_stdout_contains("running 0 tests")
@@ -818,7 +825,7 @@ fn custom_target_no_rebuild() {
             "\
 [CHECKING] a v0.5.0 ([..])
 [CHECKING] foo v0.5.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -832,7 +839,7 @@ fn custom_target_no_rebuild() {
         .with_stderr(
             "\
 [CHECKING] b v0.5.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -869,7 +876,7 @@ fn override_and_depend() {
             "#,
         )
         .file("b/src/lib.rs", "")
-        .file("b/.cargo/config", r#"paths = ["../a"]"#)
+        .file("b/.cargo/config.toml", r#"paths = ["../a"]"#)
         .build();
     p.cargo("check")
         .cwd("b")
@@ -879,7 +886,7 @@ fn override_and_depend() {
 [CHECKING] a2 v0.5.0 ([..])
 [CHECKING] a1 v0.5.0 ([..])
 [CHECKING] b v0.5.0 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -891,7 +898,7 @@ fn missing_path_dependency() {
         .file("Cargo.toml", &basic_manifest("a", "0.5.0"))
         .file("src/lib.rs", "")
         .file(
-            ".cargo/config",
+            ".cargo/config.toml",
             r#"paths = ["../whoa-this-does-not-exist"]"#,
         )
         .build();

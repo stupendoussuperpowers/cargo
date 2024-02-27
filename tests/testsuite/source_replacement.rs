@@ -13,7 +13,7 @@ fn setup_replacement(config: &str) -> TestRegistry {
 
     let root = paths::root();
     t!(fs::create_dir(&root.join(".cargo")));
-    t!(fs::write(root.join(".cargo/config"), config,));
+    t!(fs::write(root.join(".cargo/config.toml"), config,));
     crates_io
 }
 
@@ -217,11 +217,11 @@ See https://doc.rust-lang.org/cargo/reference/manifest.html#package-metadata for
 [DOWNLOADED] bar v1.0.0 (registry `alternative`)
 [COMPILING] bar v1.0.0
 [COMPILING] foo v0.0.1 ([..]foo-0.0.1)
-[FINISHED] dev [..]
+[FINISHED] `dev` profile [..]
 [PACKAGED] [..]
 [UPLOADING] foo v0.0.1 ([..])
 [UPLOADED] foo v0.0.1 to registry `crates-io`
-note: Waiting for `foo v0.0.1` to be available at registry `crates-io`.
+[NOTE] waiting for `foo v0.0.1` to be available at registry `crates-io`.
 You may press ctrl-c to skip waiting; the crate should be available shortly.
 [PUBLISHED] foo v0.0.1 at registry `crates-io`
 ",
@@ -288,7 +288,7 @@ fn source_replacement_with_registry_url() {
 [DOWNLOADED] bar v0.0.1 (registry `using-registry-url`)
 [CHECKING] bar v0.0.1
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [..]
+[FINISHED] `dev` profile [..]
 ",
         )
         .run();

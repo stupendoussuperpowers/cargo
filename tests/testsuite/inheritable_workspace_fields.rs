@@ -55,7 +55,7 @@ fn permit_additional_workspace_fields() {
         .with_stderr(
             "\
 [CHECKING] bar v0.1.0 ([CWD]/bar)
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -173,7 +173,7 @@ fn inherit_own_workspace_fields() {
 [PACKAGED] [..]
 [UPLOADING] foo v1.2.3 [..]
 [UPLOADED] foo v1.2.3 to registry `crates-io`
-note: Waiting for `foo v1.2.3` to be available at registry `crates-io`.
+[NOTE] waiting for `foo v1.2.3` to be available at registry `crates-io`.
 You may press ctrl-c to skip waiting; the crate should be available shortly.
 [PUBLISHED] foo v1.2.3 at registry `crates-io`
 ",
@@ -296,7 +296,7 @@ fn inherit_own_dependencies() {
 [DOWNLOADED] dep-build v0.8.2 ([..])
 [CHECKING] dep v0.1.2
 [CHECKING] bar v0.2.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -323,7 +323,7 @@ fn inherit_own_dependencies() {
 [PACKAGED] [..]
 [UPLOADING] bar v0.2.0 [..]
 [UPLOADED] bar v0.2.0 to registry `crates-io`
-note: Waiting for `bar v0.2.0` to be available at registry `crates-io`.
+[NOTE] waiting for `bar v0.2.0` to be available at registry `crates-io`.
 You may press ctrl-c to skip waiting; the crate should be available shortly.
 [PUBLISHED] bar v0.2.0 at registry `crates-io`
 ",
@@ -444,7 +444,7 @@ fn inherit_own_detailed_dependencies() {
 [DOWNLOADED] dep v0.1.2 ([..])
 [CHECKING] dep v0.1.2
 [CHECKING] bar v0.2.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -469,7 +469,7 @@ fn inherit_own_detailed_dependencies() {
 [PACKAGED] [..]
 [UPLOADING] bar v0.2.0 [..]
 [UPLOADED] bar v0.2.0 to registry `crates-io`
-note: Waiting for `bar v0.2.0` to be available at registry `crates-io`.
+[NOTE] waiting for `bar v0.2.0` to be available at registry `crates-io`.
 You may press ctrl-c to skip waiting; the crate should be available shortly.
 [PUBLISHED] bar v0.2.0 at registry `crates-io`
 ",
@@ -614,7 +614,7 @@ fn inherited_dependencies_union_features() {
 [CHECKING] [..]
 [CHECKING] dep v0.1.0
 [CHECKING] bar v0.2.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -709,7 +709,7 @@ fn inherit_workspace_fields() {
 [PACKAGED] [..]
 [UPLOADING] bar v1.2.3 [..]
 [UPLOADED] bar v1.2.3 to registry `crates-io`
-note: Waiting for `bar v1.2.3` to be available at registry `crates-io`.
+[NOTE] waiting for `bar v1.2.3` to be available at registry `crates-io`.
 You may press ctrl-c to skip waiting; the crate should be available shortly.
 [PUBLISHED] bar v1.2.3 at registry `crates-io`
 ",
@@ -839,7 +839,7 @@ fn inherit_dependencies() {
 [DOWNLOADED] dep-build v0.8.2 ([..])
 [CHECKING] dep v0.1.2
 [CHECKING] bar v0.2.0 ([CWD]/bar)
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -867,7 +867,7 @@ fn inherit_dependencies() {
 [PACKAGED] [..]
 [UPLOADING] bar v0.2.0 [..]
 [UPLOADED] bar v0.2.0 to registry `crates-io`
-note: Waiting for `bar v0.2.0` to be available at registry `crates-io`.
+[NOTE] waiting for `bar v0.2.0` to be available at registry `crates-io`.
 You may press ctrl-c to skip waiting; the crate should be available shortly.
 [PUBLISHED] bar v0.2.0 at registry `crates-io`
 ",
@@ -990,7 +990,7 @@ fn inherit_target_dependencies() {
 [DOWNLOADED] dep v0.1.2 ([..])
 [CHECKING] dep v0.1.2
 [CHECKING] bar v0.2.0 ([CWD]/bar)
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1033,7 +1033,7 @@ fn inherit_dependency_override_optional() {
             "\
 [UPDATING] `[..]` index
 [CHECKING] bar v0.2.0 ([CWD]/bar)
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1080,7 +1080,7 @@ fn inherit_dependency_features() {
 [CHECKING] fancy_dep v0.2.4
 [CHECKING] dep v0.1.0
 [CHECKING] bar v0.2.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1147,7 +1147,7 @@ fn inherit_detailed_dependencies() {
 [UPDATING] git repository `{}`\n\
 [CHECKING] detailed v0.5.0 ({}?branch=branchy#[..])\n\
 [CHECKING] bar v0.2.0 ([CWD]/bar)\n\
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]\n",
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
             path2url(&git_root),
             path2url(&git_root),
         ))
@@ -1188,7 +1188,7 @@ fn inherit_path_dependencies() {
             "\
 [CHECKING] dep v0.9.0 ([CWD]/dep)
 [CHECKING] bar v0.2.0 ([CWD]/bar)
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1231,14 +1231,12 @@ fn error_workspace_false() {
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] failed to parse manifest at `[CWD]/Cargo.toml`
-
-Caused by:
-  TOML parse error at line 7, column 41
-    |
-  7 |             description = { workspace = false }
-    |                                         ^^^^^
-  `workspace` cannot be false
+[ERROR] `workspace` cannot be false
+ --> Cargo.toml:7:41
+  |
+7 |             description = { workspace = false }
+  |                                         ^^^^^
+  |
 ",
         )
         .run();
@@ -1322,15 +1320,13 @@ fn error_malformed_workspace_root() {
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] failed to parse manifest at `[..]/foo/Cargo.toml`
-
-Caused by:
-  [..]
-    |
-  3 |             members = [invalid toml
-    |                        ^
-  invalid array
-  expected `]`
+[ERROR] invalid array
+expected `]`
+ --> ../Cargo.toml:3:24
+  |
+3 |             members = [invalid toml
+  |                        ^
+  |
 ",
         )
         .run();
@@ -1462,7 +1458,7 @@ true for `workspace.dependencies.dep`, this could become a hard error in the fut
 [CHECKING] fancy_dep v0.2.4
 [CHECKING] dep v0.1.0
 [CHECKING] bar v0.2.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1510,7 +1506,7 @@ not specified for `workspace.dependencies.dep`, this could become a hard error i
 [CHECKING] fancy_dep v0.2.4
 [CHECKING] dep v0.1.0
 [CHECKING] bar v0.2.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1556,7 +1552,7 @@ fn inherit_def_feat_false_member_def_feat_true() {
 [CHECKING] fancy_dep v0.2.4
 [CHECKING] dep v0.1.0
 [CHECKING] bar v0.2.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1644,7 +1640,38 @@ fn warn_inherit_unused_manifest_key_dep() {
 [DOWNLOADED] dep v0.1.0 ([..])
 [CHECKING] [..]
 [CHECKING] bar v0.2.0 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
+",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn warn_unused_workspace_package_field() {
+    Package::new("dep", "0.1.0").publish();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+            [workspace]
+            members = []
+            [workspace.package]
+            name = "unused"
+
+            [package]
+            name = "foo"
+        "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("check")
+        .with_stderr(
+            "\
+[WARNING] [CWD]/Cargo.toml: unused manifest key: workspace.package.name
+[CHECKING] foo v0.0.0 ([CWD])
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -1719,7 +1746,7 @@ fn warn_inherit_unused_manifest_key_package() {
 [WARNING] [CWD]/Cargo.toml: unused manifest key: package.rust-version.xyz
 [WARNING] [CWD]/Cargo.toml: unused manifest key: package.version.xyz
 [CHECKING] bar v1.2.3 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
